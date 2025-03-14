@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".GuideActivity"
+    android:orientation="vertical"
+    android:gravity="top|center">
+<!--    这个是顶部栏-->
+<LinearLayout
+    android:layout_height="wrap_content"
+    android:layout_width="match_parent"
+    android:orientation="horizontal"
+    android:gravity="left|center_vertical" >
+    <ImageView
+        android:layout_width="43sp"
+        android:layout_height="43sp"
+        android:background="@drawable/logo_shape"
+        android:src="@drawable/logo"
+        android:scaleType="fitCenter"/>
+</LinearLayout>
+</LinearLayout>
