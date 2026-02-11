@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Quantum</string>
+    <string name="error">Error</string>
+    <string name="ok">√</string>
+    <string name="no_ok">×</string>
+    <string name="hostButton">主机</string>
+    <string name="chatButton">畅聊</string>
+    <string name="musicButton">音乐</string>
+    <string name="plus">+</string>
+    <string name="selected_hosts">已选择主机</string>
+    <string name="host_inputer">输入要连接的主机</string>
+    <string name="connect">连接</string>
+    <string name="connect_error">连接失败</string>
+</resources>
