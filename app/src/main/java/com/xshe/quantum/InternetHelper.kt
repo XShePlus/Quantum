@@ -200,9 +200,11 @@ class InternetHelper {
     }
 
     fun uploadMusic(url: String, roomName: String, file: File, callback: RoomRequestCallback) {
-        // 根据后缀判断 MIME 类型
-        val mediaType =
-            if (file.name.endsWith(".flac")) "audio/flac".toMediaType() else "audio/mpeg".toMediaType()
+        val mediaType = when {
+            file.name.endsWith(".flac", ignoreCase = true) -> "audio/flac".toMediaType()
+            file.name.endsWith(".aac", ignoreCase = true) -> "audio/aac".toMediaType()
+            else -> "audio/mpeg".toMediaType() // 默认为 mp3
+        }
 
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)

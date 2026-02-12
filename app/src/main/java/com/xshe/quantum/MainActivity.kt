@@ -13,7 +13,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -94,6 +97,10 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -110,6 +117,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.delay
 import org.json.JSONArray
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -185,6 +194,7 @@ fun FirstComposeView(modifier: Modifier, setting: SharedPreferences, onConfirm: 
         Button(
             onClick = {
                 setting.edit().putString("User", name).commit()
+                setting.edit().putString("history_host", "").commit()
                 onConfirm()
             },
             colors = buttonColors,
@@ -216,6 +226,8 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
     val mContext = LocalContext.current
     var lastManualActionTime by remember { mutableLongStateOf(0L) }
+
+    values.historyHost = setting.getString("history_host", "暂无历史连接主机").toString()
 
     //轮询人数
     LaunchedEffect(i, values.roomName) {
@@ -298,7 +310,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                         override fun onFailure() {}
                     })
             }
-            delay(1000) // 3秒轮询一次
+            delay(1000) // 1秒轮询一次
         }
     }
 
@@ -362,6 +374,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                             onHostNameChange = { hostInputText = it },
                             onConnectSuccess = { newHost ->
                                 savedHost = newHost; hostInputText = ""
+                                setting.edit().putString("history_host", newHost).apply()
                             }
                         )
 
@@ -384,6 +397,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostList(
     buttonColors: ButtonColors,
@@ -397,7 +411,7 @@ fun HostList(
 ) {
     var showPlusRoomDialog by remember { mutableStateOf(false) }
     val mContext = LocalContext.current
-
+    var expanded by remember { mutableStateOf(false) } // 下拉列表显示的状态
     val nplusButtonShape = MaterialTheme.shapes.extraSmall
     val plusButtonShape = MaterialTheme.shapes.small
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -533,19 +547,50 @@ fun HostList(
                 }
             }
 
-            TextField(
-                value = hostNameInput,
-                onValueChange = onHostNameChange,
-                label = { Text(stringResource(R.string.host_inputer)) },
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.small,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier.weight(1f) // 占据中间剩余空间
+            ) {
+                TextField(
+                    value = hostNameInput,
+                    onValueChange = onHostNameChange,
+                    label = { Text(stringResource(R.string.host_inputer)) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.4f
+                        ),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    )
                 )
-            )
+
+                // 下拉列表
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(values.historyHost)
+                        },
+                        onClick = {
+                            onHostNameChange(values.historyHost)
+                            expanded = false // 点击后关闭菜单
+                        },
+                        contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                    )
+                }
+            }
             Button(
                 onClick = {
                     if (hostNameInput.isEmpty()) tools.showToast(mContext, "请输入正确URL!")
@@ -719,9 +764,11 @@ fun RoomPasswordDialog(
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            Column(modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+            ) {
 
                 // --- 可滑动区域 ---
                 Column(
@@ -836,6 +883,7 @@ fun ChatView(
     val url =
         if (host.startsWith("http://") || host.startsWith("https://")) host else "http://$host"
 
+    // 轮询刷新消息列表
     LaunchedEffect(values.roomName) {
         while (true) {
             if (host.isNotBlank() && values.roomName.isNotBlank()) {
@@ -846,11 +894,14 @@ fun ChatView(
                         override fun onSuccess(responseBody: String) {
                             try {
                                 val jsonArray = JSONArray(responseBody)
+                                // 只有当数量不一致时更新，避免频繁刷新导致动画异常
                                 if (jsonArray.length() != values.messageList.size) {
-                                    values.messageList.clear()
+                                    val newList = mutableListOf<String>()
                                     for (i in 0 until jsonArray.length()) {
-                                        values.messageList.add(jsonArray.getString(i))
+                                        newList.add(jsonArray.getString(i))
                                     }
+                                    values.messageList.clear()
+                                    values.messageList.addAll(newList)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -874,14 +925,27 @@ fun ChatView(
                 .weight(1f)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            reverseLayout = true,
+            reverseLayout = true, // 底部往上排，新消息在最下面弹出
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            items(values.messageList.reversed()) { msg ->
+            items(
+                items = values.messageList.reversed(),
+                key = { msg -> msg.hashCode() + values.messageList.indexOf(msg) }
+            ) { msg ->
                 val isMe = msg.startsWith("$userName:")
                 val displayMsg = msg.substringAfter(":")
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateItem(
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            fadeInSpec = tween(300),
+                            fadeOutSpec = tween(300)
+                        ),
                     horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
                 ) {
                     Card(
@@ -914,6 +978,7 @@ fun ChatView(
             }
         }
 
+        // 输入
         Row(
             modifier = Modifier
                 .navigationBarsPadding()
@@ -936,10 +1001,14 @@ fun ChatView(
             IconButton(
                 onClick = {
                     if (inputMessage.isNotBlank()) {
+                        val fullMsg = "${userName}:${inputMessage}"
                         InternetHelper().appendMessage(
-                            url, values.roomName, "${userName}:${inputMessage}",
+                            url, values.roomName, fullMsg,
                             object : InternetHelper.RoomRequestCallback {
                                 override fun onSuccess() {
+                                    if (!values.messageList.contains(fullMsg)) {
+                                        values.messageList.add(fullMsg)
+                                    }
                                     inputMessage = ""
                                 }
 
@@ -1090,7 +1159,7 @@ fun MusicView(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Button(
-                    onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac")) },
+                    onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac"))},
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("选择并上传音乐")

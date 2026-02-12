@@ -14,6 +14,7 @@ foundation = "1.10.2"
 okhttp = "4.12.0"
 gson = "2.10.1"
 foundationLayout = "1.10.2"
+animationCore = "1.10.2"
 
 
 [libraries]
@@ -43,6 +44,7 @@ androidx-compose-compiler = { group = "androidx.compose.compiler", name = "compi
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
+androidx-compose-animation-core = { group = "androidx.compose.animation", name = "animation-core", version.ref = "animationCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

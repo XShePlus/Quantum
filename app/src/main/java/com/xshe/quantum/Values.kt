@@ -8,9 +8,8 @@ import androidx.compose.runtime.setValue
 class Values {
     var isCanSelected by mutableStateOf(true)
     var roomName by mutableStateOf("null")
-    var password by mutableStateOf("")
     val messageList = mutableStateListOf<String>()
-
+    var historyHost = ""
 
 
     data class RoomNumbers(var present: Int = 0, var max: Int = 0)
