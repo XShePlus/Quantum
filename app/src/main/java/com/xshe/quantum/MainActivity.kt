@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.media.MediaPlayer
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -203,11 +205,39 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     val mediaPlayer = remember { MediaPlayer() }
     var globalIsPlaying by remember { mutableStateOf(false) }
     var currentPlayingTrack by remember { mutableStateOf("") }
+    var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
+    val mContext = LocalContext.current
+    //轮询人数
+    LaunchedEffect(i, values.roomName) {
+        while (true) {
+            if (i != 0 && !values.roomName.isNullOrEmpty() && !savedHost.isNullOrBlank()) {
+                InternetHelper().getPAMNumber(
+                    hostName = savedHost,
+                    roomName = values.roomName,
+                    callback = object : InternetHelper.PAMCallback {
+                        override fun onSuccess(p: Int, m: Int) {
+                            roomNumbers.max = m
+                            roomNumbers.present = p
+                        }
 
+                        override fun onFailure() {
+                            Handler(Looper.getMainLooper()).post {
+                                tools.showToast(mContext, "获取房间人数失败")
+                            }
+                        }
+                    }
+                )
+            }
+            delay(20 * 1000)
+        }
+    }
     // 核心轮询同步逻辑
     LaunchedEffect(values.roomName, savedHost) {
         while (true) {
-            if (savedHost.isNotBlank() && values.roomName != "null") {
+            if (savedHost.isNotBlank() && values.roomName.isNullOrEmpty() && !values.roomName.equals(
+                    "null"
+                )
+            ) {
                 InternetHelper().getMusicStatus(
                     savedHost,
                     values.roomName,
@@ -235,7 +265,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                                     globalIsPlaying = !sPause
                                 }
                             } else if (sMusic.isNotBlank()) {
-                                // 同步播放/暂停状态
                                 if (!sPause != globalIsPlaying) {
                                     if (sPause) mediaPlayer.pause() else mediaPlayer.start()
                                     globalIsPlaying = !sPause
@@ -259,7 +288,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                         override fun onFailure() {}
                     })
             }
-            delay(3000) // 3秒轮询一次
+            delay(1000) // 3秒轮询一次
         }
     }
 
@@ -297,11 +326,14 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp
             ) {
+                //📍
                 Text(
-                    text = if (i == 0) "👋 Hi, $userName" else "📍 ${values.roomName.ifBlank { "未加入房间" }}",
+                    text = if (i == 0) "👋 Hi, $userName" else {
+                        if (values.roomName.isNullOrEmpty()) "null" else "\uD83D\uDCCD ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
+                    },
                     modifier = Modifier
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
                 )
             }
@@ -358,6 +390,8 @@ fun HostList(
 
     val nplusButtonShape = MaterialTheme.shapes.extraSmall
     val plusButtonShape = MaterialTheme.shapes.small
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var pendingRoomItem by remember { mutableStateOf<Values.ListItem?>(null) }
 
     val updateRoomList = {
         itemList.clear()
@@ -385,16 +419,48 @@ fun HostList(
         }
     }
 
+    if (showPasswordDialog && pendingRoomItem != null) {
+        RoomPasswordDialog(
+            roomName = pendingRoomItem!!.itemHost,
+            onDismissRequest = {
+                showPasswordDialog = false
+                pendingRoomItem = null
+            },
+            onConfirmation = { roomName, password ->
+                showPasswordDialog = false
+                tools.enterRoom(
+                    mContext, host, roomName, password,
+                    object : Tools.gacCallback {
+                        override fun onSuccess() {
+                            // 找到并更新列表项
+                            val idx = itemList.indexOf(pendingRoomItem)
+                            if (idx != -1) {
+                                itemList[idx] = itemList[idx].copy(isSelected = true)
+                            }
+                            values.isCanSelected = false
+                            values.roomName = roomName
+                            pendingRoomItem = null
+                        }
+
+                        override fun onFailure() {
+                            pendingRoomItem = null
+                        }
+                    }
+                )
+            }
+        )
+    }
+
     if (showPlusRoomDialog) {
         PlusRoomDialog(
             onDismissRequest = { showPlusRoomDialog = false },
-            onConfirmation = { roomName, maxNumber, cancelTime ->
+            onConfirmation = { roomName, maxNumber, cancelTime, password ->
                 tools.addRoom(
                     mContext,
                     host,
                     roomName,
                     maxNumber,
-                    cancelTime,
+                    cancelTime, password,
                     object : Tools.gacCallback {
                         override fun onSuccess() {
                             tools.showToast(mContext, "创建成功")
@@ -486,19 +552,8 @@ fun HostList(
                     val index = itemList.indexOf(item)
                     if (index != -1) {
                         if (values.isCanSelected && !item.isSelected) {
-                            tools.enterRoom(
-                                mContext,
-                                host,
-                                item.itemHost,
-                                object : Tools.gacCallback {
-                                    override fun onSuccess() {
-                                        itemList[index] = item.copy(isSelected = true)
-                                        values.isCanSelected = false
-                                        values.roomName = item.itemHost
-                                    }
-
-                                    override fun onFailure() {}
-                                })
+                            pendingRoomItem = item
+                            showPasswordDialog = true
                         } else if (!values.isCanSelected && item.isSelected) {
                             tools.exitRoom(
                                 mContext,
@@ -524,19 +579,20 @@ fun HostList(
 @Composable
 fun PlusRoomDialog(
     onDismissRequest: () -> Unit,
-    onConfirmation: (String, Int, Int) -> Unit,
+    onConfirmation: (String, Int, Int, String) -> Unit,
 ) {
     var roomName by remember { mutableStateOf("") }
     var maxNumber by remember { mutableStateOf(2f) }
     var maxNumberTrue = maxNumber.toInt()
     var cancelTime by remember { mutableStateOf(60f) }
     var cancelTimeTrue = cancelTime.toInt()
+    var password by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = { onDismissRequest() }) {
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .height(500.dp)
+                .height(620.dp)
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
@@ -556,6 +612,23 @@ fun PlusRoomDialog(
                         roomName = newText
                     },
                     label = { Text("房间名称") },
+                    enabled = true,
+                    readOnly = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    shape = MaterialTheme.shapes.small,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+                TextField(
+                    value = password,
+                    onValueChange = { newText ->
+                        password = newText
+                    },
+                    label = { Text("房间密码") },
                     enabled = true,
                     readOnly = false,
                     modifier = Modifier
@@ -594,7 +667,7 @@ fun PlusRoomDialog(
                         inactiveTrackColor = MaterialTheme.colorScheme.onSecondary
                     ),
                     modifier = Modifier.fillMaxWidth(0.7f),
-                    valueRange = 10f..180f,
+                    valueRange = 10f..240f,
                     onValueChange = {
                         cancelTime = it
                     },
@@ -616,7 +689,14 @@ fun PlusRoomDialog(
                         Text("取消")
                     }
                     TextButton(
-                        onClick = { onConfirmation(roomName, maxNumberTrue, cancelTimeTrue) },
+                        onClick = {
+                            onConfirmation(
+                                roomName,
+                                maxNumberTrue,
+                                cancelTimeTrue,
+                                password
+                            )
+                        },
                         modifier = Modifier.padding(horizontal = 8.dp)
                     ) {
                         Text("添加")
@@ -627,6 +707,73 @@ fun PlusRoomDialog(
     }
 }
 
+@Composable
+fun RoomPasswordDialog(
+    roomName: String,
+    onDismissRequest: () -> Unit,
+    onConfirmation: (String, String) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = { onDismissRequest() }) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .height(280.dp)
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "加入房间${roomName}",
+                    fontSize = 23.sp,
+                    modifier = Modifier.padding(bottom = 32.dp)
+                )
+                TextField(
+                    value = password,
+                    onValueChange = { newText ->
+                        password = newText
+                    },
+                    label = { Text("房间密码") },
+                    enabled = true,
+                    readOnly = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    shape = MaterialTheme.shapes.small,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    TextButton(
+                        onClick = { onDismissRequest() },
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text("取消")
+                    }
+                    TextButton(
+                        onClick = { onConfirmation(roomName, password) },
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text("添加")
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun ConnectListItem(
@@ -729,7 +876,7 @@ fun ChatView(
                         override fun onFailure() {}
                     })
             }
-            delay(2000)
+            delay(1500)
         }
     }
 

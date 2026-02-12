@@ -1,5 +1,8 @@
 package com.xshe.quantum
 
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -30,7 +33,10 @@ class InternetHelper {
         fun onSuccess(responseBody: String)
         fun onFailure()
     }
-
+    interface PAMCallback {
+        fun onSuccess(p:Int,m: Int)
+        fun onFailure()
+    }
     interface RoomRequestCallback {
         fun onSuccess()
         fun onFailure()
@@ -72,12 +78,14 @@ class InternetHelper {
         roomName: String,
         maxNumber: Int,
         cancelTime: Int,
+        password: String,
         callback: RoomRequestCallback
     ) {
         val jsonObject = JSONObject().apply {
             put("room_name", roomName)
             put("max_number", maxNumber)
             put("cancel_time", cancelTime)
+            put("password",password)
         }
         val requestBody =
             jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -93,13 +101,16 @@ class InternetHelper {
         }
     }
 
-    fun enterRoom(url: String, roomName: String, callback: RoomRequestCallback) {
-        val jsonObject = JSONObject().apply { put("room_name", roomName) }
+    fun enterRoom(mContext: Context,url: String, roomName: String, password: String,callback: RoomRequestCallback) {
+        val jsonObject = JSONObject().apply {
+            put("room_name", roomName)
+            put("password",password)
+        }
         val requestBody =
             jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request =
             Request.Builder().url("${formatUrl(url)}/api/enter_room").post(requestBody).build()
-
+        val tools= Tools()
         thread {
             try {
                 val response = okHttpClient.newCall(request).execute()
@@ -108,6 +119,8 @@ class InternetHelper {
                 if (response.isSuccessful && result.contains("行")) {
                     callback.onSuccess()
                 } else {
+                    if(response.code==401) tools.showToast(mContext,"房间已满")
+                    else if(response.code==402) tools.showToast(mContext,"密码错误")
                     callback.onFailure()
                 }
             } catch (e: Exception) {
@@ -232,7 +245,7 @@ class InternetHelper {
 
     fun getMusicStatus(hostName: String, roomName: String, callback: RequestCallback) {
         val client = OkHttpClient()
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName:6132"
+        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
 
         val json = JSONObject().apply {
             put("room_name", roomName)
@@ -264,6 +277,46 @@ class InternetHelper {
         })
     }
 
+    fun getPAMNumber(
+        hostName: String,
+        roomName: String,
+        callback: PAMCallback
+    ) {
+        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
+        val json = JSONObject().apply {
+            put("room_name", roomName)
+        }
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+        val request = Request.Builder()
+            .url("$url/api/get_numbers")
+            .post(body)
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback.onFailure()
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (it.isSuccessful) {
+                        val bodyString = it.body?.string() ?: ""
+                        val json = JSONObject(bodyString)
+                        val p = json.optInt("present_number")
+                        val m = json.optInt("max_number")
+
+                        // 切回主线程更新 UI
+                        Handler(Looper.getMainLooper()).post {
+                            callback.onSuccess(p=p,m=m)
+                        }
+                    }
+
+                }
+            }
+        })
+    }
+
     fun updateMusicStatus(
         hostName: String,
         roomName: String,
@@ -273,7 +326,7 @@ class InternetHelper {
         callback: RoomRequestCallback
     ) {
         val client = OkHttpClient()
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName:6132"
+        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
 
         val json = JSONObject().apply {
             put("room_name", roomName)
@@ -305,7 +358,7 @@ class InternetHelper {
 
     // 获取音频流地址
     fun getStreamUrl(hostName: String, roomName: String, fileName: String): String {
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName:6132"
+        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
         return "$url/api/stream/$roomName/$fileName"
     }
 }

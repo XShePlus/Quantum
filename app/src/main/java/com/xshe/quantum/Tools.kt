@@ -38,6 +38,7 @@ class Tools {
         roomName: String,
         maxNumber: Int,
         cancelTime: Int,
+        password: String,
         callback: gacCallback
     ) {
         if (roomName.trim().isEmpty() || hostName.trim().isEmpty()) {
@@ -51,6 +52,7 @@ class Tools {
             roomName,
             maxNumber,
             cancelTime,
+            password,
             object : InternetHelper.RoomRequestCallback {
                 override fun onSuccess() {
                     connectAndCheck(mContext, hostName, object : gacCallback {
@@ -106,8 +108,8 @@ class Tools {
         })
     }
 
-    fun enterRoom(mContext: Context, hostName: String, roomName: String, callback: gacCallback) {
-        InternetHelper().enterRoom(hostName, roomName, object : InternetHelper.RoomRequestCallback {
+    fun enterRoom(mContext: Context, hostName: String, roomName: String, password: String, callback: gacCallback) {
+        InternetHelper().enterRoom(mContext,hostName, roomName, password,object : InternetHelper.RoomRequestCallback {
             override fun onSuccess() {
                 connectAndCheck(mContext, hostName, object : gacCallback {
                     override fun onSuccess() {
@@ -115,13 +117,12 @@ class Tools {
                     }
 
                     override fun onFailure() {
-                        callback.onSuccess()
+                        callback.onFailure()
                     }
                 })
             }
 
             override fun onFailure() {
-                showToast(mContext, "进入失败：房间可能已满")
                 callback.onFailure()
             }
         })

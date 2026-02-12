@@ -22,6 +22,15 @@ android {
         }
     }
 
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            if (buildType.name == "release") {
+                output.outputFileName = "Quantum_V${versionName}.apk"
+            }
+        }
+    }
+
     signingConfigs {
         create("release") {
             val storeFilePath = localProperties.getProperty("release.storeFile", "")
@@ -38,8 +47,8 @@ android {
         applicationId = "com.xshe.quantum"
         minSdk = 28
         targetSdk = 36
-        versionCode = 10
-        versionName = "V1.0"
+        versionCode = 11
+        versionName = "V1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,7 +64,7 @@ android {
             )
         }
         getByName("debug") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
         }
     }
 
