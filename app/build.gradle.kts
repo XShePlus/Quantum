@@ -26,7 +26,7 @@ android {
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             if (buildType.name == "release") {
-                output.outputFileName = "Quantum_V${versionName}.apk"
+                output.outputFileName = "Quantum_${versionName}.apk"
             }
         }
     }
