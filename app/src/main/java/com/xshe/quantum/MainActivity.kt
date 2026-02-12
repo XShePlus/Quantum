@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,9 +38,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
@@ -592,14 +595,18 @@ fun PlusRoomDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .height(620.dp)
+                .height(420.dp)
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
+            // 📍 加上这一行
+            val scrollState = rememberScrollState()
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp),
+                    .padding(24.dp)
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -608,12 +615,8 @@ fun PlusRoomDialog(
                 )
                 TextField(
                     value = roomName,
-                    onValueChange = { newText ->
-                        roomName = newText
-                    },
+                    onValueChange = { roomName = it },
                     label = { Text("房间名称") },
-                    enabled = true,
-                    readOnly = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 24.dp),
@@ -625,12 +628,8 @@ fun PlusRoomDialog(
                 )
                 TextField(
                     value = password,
-                    onValueChange = { newText ->
-                        password = newText
-                    },
+                    onValueChange = { password = it },
                     label = { Text("房间密码") },
-                    enabled = true,
-                    readOnly = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 24.dp),
@@ -641,7 +640,9 @@ fun PlusRoomDialog(
                     )
                 )
                 Text(
-                    text = "最大人数", fontSize = 15.sp, modifier = Modifier.padding(bottom = 3.dp)
+                    text = "最大人数",
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(bottom = 3.dp)
                 )
                 Slider(
                     value = maxNumber,
@@ -652,12 +653,12 @@ fun PlusRoomDialog(
                     ),
                     modifier = Modifier.fillMaxWidth(0.7f),
                     valueRange = 0f..16f,
-                    onValueChange = {
-                        maxNumber = it
-                    },
+                    onValueChange = { maxNumber = it },
                 )
                 Text(
-                    text = "取消时间", fontSize = 15.sp, modifier = Modifier.padding(bottom = 3.dp)
+                    text = "取消时间",
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(bottom = 3.dp)
                 )
                 Slider(
                     value = cancelTime,
@@ -668,9 +669,7 @@ fun PlusRoomDialog(
                     ),
                     modifier = Modifier.fillMaxWidth(0.7f),
                     valueRange = 10f..240f,
-                    onValueChange = {
-                        cancelTime = it
-                    },
+                    onValueChange = { cancelTime = it },
                 )
                 Text(
                     "当前选择${maxNumberTrue.toString()}人，持续${cancelTimeTrue.toInt()}分钟",
@@ -682,23 +681,15 @@ fun PlusRoomDialog(
                         .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    TextButton(
-                        onClick = { onDismissRequest() },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    ) {
-                        Text("取消")
-                    }
-                    TextButton(
-                        onClick = {
-                            onConfirmation(
-                                roomName,
-                                maxNumberTrue,
-                                cancelTimeTrue,
-                                password
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    ) {
+                    TextButton(onClick = { onDismissRequest() }) { Text("取消") }
+                    TextButton(onClick = {
+                        onConfirmation(
+                            roomName,
+                            maxNumberTrue,
+                            cancelTimeTrue,
+                            password
+                        )
+                    }) {
                         Text("添加")
                     }
                 }
@@ -722,10 +713,13 @@ fun RoomPasswordDialog(
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
+            val scrollState = rememberScrollState()
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp),
+                    .padding(24.dp)
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -736,12 +730,8 @@ fun RoomPasswordDialog(
                 )
                 TextField(
                     value = password,
-                    onValueChange = { newText ->
-                        password = newText
-                    },
+                    onValueChange = { password = it },
                     label = { Text("房间密码") },
-                    enabled = true,
-                    readOnly = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 24.dp),
@@ -757,16 +747,8 @@ fun RoomPasswordDialog(
                         .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    TextButton(
-                        onClick = { onDismissRequest() },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    ) {
-                        Text("取消")
-                    }
-                    TextButton(
-                        onClick = { onConfirmation(roomName, password) },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    ) {
+                    TextButton(onClick = { onDismissRequest() }) { Text("取消") }
+                    TextButton(onClick = { onConfirmation(roomName, password) }) {
                         Text("添加")
                     }
                 }

@@ -98,6 +98,7 @@ dependencies {
     // 网络与解析
     implementation(libs.okhttp)
     implementation(libs.gson)
+    implementation(libs.androidx.compose.foundation.layout)
 
 
     // 测试
