@@ -23,9 +23,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,11 +86,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -101,6 +105,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.delay
@@ -210,6 +215,8 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     var currentPlayingTrack by remember { mutableStateOf("") }
     var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
     val mContext = LocalContext.current
+    var lastManualActionTime by remember { mutableLongStateOf(0L) }
+
     //轮询人数
     LaunchedEffect(i, values.roomName) {
         while (true) {
@@ -237,15 +244,15 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     // 核心轮询同步逻辑
     LaunchedEffect(values.roomName, savedHost) {
         while (true) {
-            if (savedHost.isNotBlank() && values.roomName.isNullOrEmpty() && !values.roomName.equals(
-                    "null"
-                )
-            ) {
+            if (savedHost.isNotBlank() && !values.roomName.isNullOrEmpty()) {
                 InternetHelper().getMusicStatus(
                     savedHost,
                     values.roomName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
+                            // 如果刚手动操作过，跳过本次同步
+                            if (System.currentTimeMillis() - lastManualActionTime < 3000) return
+
                             val json = JSONObject(responseBody)
                             val sPause = json.optBoolean("is_music_pause", true)
                             val sTime = json.optInt("current_music_time", 0)
@@ -481,54 +488,28 @@ fun HostList(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp, 0.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 12.dp, top = 15.dp, bottom = 0.dp, end = 12.dp)
+                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(
-                onClick = { showPlusRoomDialog = true },
-                colors = buttonColors,
-                shape = plusButtonShape,
-                modifier = Modifier.padding(5.dp)
-            ) {
-                Text(stringResource(R.string.plus), fontSize = 22.sp)
-            }
-
-            TextField(
-                value = hostNameInput,
-                onValueChange = onHostNameChange,
-                label = { Text(stringResource(R.string.host_inputer)) },
-                modifier = Modifier.weight(1f),
-                colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surface)
-            )
-
             Column(
-                Modifier.padding(start = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Button(
-                    onClick = {
-                        if (hostNameInput.isEmpty()) tools.showToast(mContext, "请输入正确URL!")
-                        else tools.connectAndCheck(
-                            mContext,
-                            hostNameInput,
-                            object : Tools.gacCallback {
-                                override fun onSuccess() {
-                                    onConnectSuccess(hostNameInput)
-                                }
-
-                                override fun onFailure() {
-                                    tools.showToast(mContext, "连接失败")
-                                }
-                            })
-                    },
-                    colors = buttonColors,
-                    shape = nplusButtonShape,
+                IconButton(
+                    onClick = { showPlusRoomDialog = true },
                     modifier = Modifier
-                        .height(32.dp)
-                        .padding(0.dp)
-                ) { Text("连接", fontSize = 12.sp) }
-
-                Button(
+                        .size(24.dp)
+                        .weight(1f) // 占一半高度
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "添加",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(
                     onClick = {
                         tools.connectAndCheck(mContext, host, object : Tools.gacCallback {
                             override fun onSuccess() {
@@ -540,40 +521,91 @@ fun HostList(
                             }
                         })
                     },
-                    colors = buttonColors,
-                    shape = nplusButtonShape,
                     modifier = Modifier
-                        .height(32.dp)
-                        .padding(0.dp)
-                ) { Text("刷新", fontSize = 12.sp) }
+                        .size(24.dp)
+                        .weight(1f) // 占一半高度
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "刷新",
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+
+            TextField(
+                value = hostNameInput,
+                onValueChange = onHostNameChange,
+                label = { Text(stringResource(R.string.host_inputer)) },
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.small,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                )
+            )
+            Button(
+                onClick = {
+                    if (hostNameInput.isEmpty()) tools.showToast(mContext, "请输入正确URL!")
+                    else tools.connectAndCheck(mContext, hostNameInput, object : Tools.gacCallback {
+                        override fun onSuccess() {
+                            onConnectSuccess(hostNameInput)
+                        }
+
+                        override fun onFailure() {
+                            tools.showToast(mContext, "连接失败")
+                        }
+                    })
+                },
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxHeight(),
+                contentPadding = PaddingValues(horizontal = 16.dp)
+            ) {
+                Text("连接")
             }
         }
+        if (itemList.isEmpty() && host.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "主机内暂无房间",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        } else {
+            LazyColumn(Modifier.padding(horizontal = 17.dp, vertical = 8.dp)) {
+                items(items = itemList) { item ->
+                    ConnectListItem(listItem = item, values = values, onSelectClick = {
+                        val index = itemList.indexOf(item)
+                        if (index != -1) {
+                            if (values.isCanSelected && !item.isSelected) {
+                                pendingRoomItem = item
+                                showPasswordDialog = true
+                            } else if (!values.isCanSelected && item.isSelected) {
+                                tools.exitRoom(
+                                    mContext,
+                                    host,
+                                    item.itemHost,
+                                    object : Tools.gacCallback {
+                                        override fun onSuccess() {
+                                            itemList[index] = item.copy(isSelected = false)
+                                            values.isCanSelected = true
+                                            values.roomName = ""
+                                        }
 
-        LazyColumn(Modifier.padding(horizontal = 17.dp, vertical = 8.dp)) {
-            items(items = itemList) { item ->
-                ConnectListItem(listItem = item, values = values, onSelectClick = {
-                    val index = itemList.indexOf(item)
-                    if (index != -1) {
-                        if (values.isCanSelected && !item.isSelected) {
-                            pendingRoomItem = item
-                            showPasswordDialog = true
-                        } else if (!values.isCanSelected && item.isSelected) {
-                            tools.exitRoom(
-                                mContext,
-                                host,
-                                item.itemHost,
-                                object : Tools.gacCallback {
-                                    override fun onSuccess() {
-                                        itemList[index] = item.copy(isSelected = false)
-                                        values.isCanSelected = true
-                                        values.roomName = ""
-                                    }
-
-                                    override fun onFailure() {}
-                                })
+                                        override fun onFailure() {}
+                                    })
+                            }
                         }
-                    }
-                })
+                    })
+                }
             }
         }
     }
@@ -586,111 +618,85 @@ fun PlusRoomDialog(
 ) {
     var roomName by remember { mutableStateOf("") }
     var maxNumber by remember { mutableStateOf(2f) }
-    var maxNumberTrue = maxNumber.toInt()
+    val maxNumberTrue = maxNumber.toInt()
     var cancelTime by remember { mutableStateOf(60f) }
-    var cancelTimeTrue = cancelTime.toInt()
+    val cancelTimeTrue = cancelTime.toInt()
     var password by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = { onDismissRequest() }) {
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .height(420.dp)
+                .height(450.dp)
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            // 📍 加上这一行
-            val scrollState = rememberScrollState()
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(20.dp)
             ) {
-                Text(
-                    text = "添加房间", fontSize = 23.sp, modifier = Modifier.padding(bottom = 32.dp)
-                )
-                TextField(
-                    value = roomName,
-                    onValueChange = { roomName = it },
-                    label = { Text("房间名称") },
+                Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    shape = MaterialTheme.shapes.small,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "添加房间",
+                        fontSize = 23.sp,
+                        modifier = Modifier.padding(bottom = 24.dp)
                     )
-                )
-                TextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("房间密码") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    shape = MaterialTheme.shapes.small,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+
+                    TextField(
+                        value = roomName,
+                        onValueChange = { roomName = it },
+                        label = { Text("房间名称") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        shape = MaterialTheme.shapes.small
                     )
-                )
-                Text(
-                    text = "最大人数",
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(bottom = 3.dp)
-                )
-                Slider(
-                    value = maxNumber,
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.secondary,
-                        activeTrackColor = MaterialTheme.colorScheme.primaryFixedDim,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSecondary
-                    ),
-                    modifier = Modifier.fillMaxWidth(0.7f),
-                    valueRange = 0f..16f,
-                    onValueChange = { maxNumber = it },
-                )
-                Text(
-                    text = "取消时间",
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(bottom = 3.dp)
-                )
-                Slider(
-                    value = cancelTime,
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.secondary,
-                        activeTrackColor = MaterialTheme.colorScheme.primaryFixedDim,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSecondary
-                    ),
-                    modifier = Modifier.fillMaxWidth(0.7f),
-                    valueRange = 10f..240f,
-                    onValueChange = { cancelTime = it },
-                )
-                Text(
-                    "当前选择${maxNumberTrue.toString()}人，持续${cancelTimeTrue.toInt()}分钟",
-                    modifier = Modifier.padding(vertical = 5.dp)
-                )
+
+                    TextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("房间密码") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        shape = MaterialTheme.shapes.small
+                    )
+
+                    Text(text = "最大人数 (${maxNumberTrue})", fontSize = 15.sp)
+                    Slider(
+                        value = maxNumber,
+                        valueRange = 0f..16f,
+                        onValueChange = { maxNumber = it },
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    )
+
+                    Text(text = "取消时间 (${cancelTimeTrue}分钟)", fontSize = 15.sp)
+                    Slider(
+                        value = cancelTime,
+                        valueRange = 10f..240f,
+                        onValueChange = { cancelTime = it },
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    )
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End, // 靠右对齐
                 ) {
                     TextButton(onClick = { onDismissRequest() }) { Text("取消") }
                     TextButton(onClick = {
-                        onConfirmation(
-                            roomName,
-                            maxNumberTrue,
-                            cancelTimeTrue,
-                            password
-                        )
+                        onConfirmation(roomName, maxNumberTrue, cancelTimeTrue, password)
                     }) {
-                        Text("添加")
+                        Text("确认添加")
                     }
                 }
             }
@@ -713,43 +719,39 @@ fun RoomPasswordDialog(
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            val scrollState = rememberScrollState()
+            Column(modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)) {
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = "加入房间${roomName}",
-                    fontSize = 23.sp,
-                    modifier = Modifier.padding(bottom = 32.dp)
-                )
-                TextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("房间密码") },
+                // --- 可滑动区域 ---
+                Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    shape = MaterialTheme.shapes.small,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "加入房间: $roomName",
+                        fontSize = 20.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
-                )
+                    TextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("房间密码") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small
+                    )
+                }
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = { onDismissRequest() }) { Text("取消") }
                     TextButton(onClick = { onConfirmation(roomName, password) }) {
-                        Text("添加")
+                        Text("加入")
                     }
                 }
             }
@@ -972,6 +974,8 @@ fun MusicView(
 ) {
     val mcontext = LocalContext.current
     val musicList = remember { mutableStateListOf<String>() }
+    var currentPos by remember { mutableFloatStateOf(0f) }
+    val duration = if (mediaPlayer.duration > 0) mediaPlayer.duration.toFloat() else 1f
 
     // 获取列表
     LaunchedEffect(roomName) {
@@ -980,6 +984,13 @@ fun MusicView(
                 musicList.clear()
                 musicList.addAll(list)
             }
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            currentPos = mediaPlayer.currentPosition.toFloat()
+            delay(1000) // 每1秒更新一次 UI
         }
     }
 
@@ -1086,6 +1097,52 @@ fun MusicView(
                 }
 
                 Spacer(Modifier.height(12.dp))
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Slider(
+                        value = currentPos,
+                        onValueChange = {
+                            currentPos = it
+                        },
+                        onValueChangeFinished = {
+                            mediaPlayer.seekTo(currentPos.toInt())
+                            // 手动拖动后立即同步到服务器
+                            InternetHelper().updateMusicStatus(
+                                hostName,
+                                roomName,
+                                !isPlaying,
+                                (currentPos / 1000).toInt(),
+                                currentPlayingTrack,
+                                object : InternetHelper.RoomRequestCallback {
+                                    override fun onSuccess() {}
+                                    override fun onFailure() {}
+                                }
+                            )
+                        },
+                        valueRange = 0f..duration,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = tools.formatTime(currentPos.toInt()),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            text = tools.formatTime(duration.toInt()),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

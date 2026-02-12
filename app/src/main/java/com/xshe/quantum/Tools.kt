@@ -221,4 +221,10 @@ class Tools {
         roomNames.clear()
         roomStatuses.clear()
     }
+    fun formatTime(milliseconds: Int): String {
+        val totalSeconds = milliseconds / 1000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return "%02d:%02d".format(minutes, seconds)
+    }
 }
