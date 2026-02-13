@@ -1,11 +1,17 @@
 package com.xshe.quantum
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.SharedPreferences
+import android.graphics.Bitmap
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -121,7 +127,12 @@ import org.json.JSONArray
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.core.app.ActivityCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -132,7 +143,13 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     val setting = getSharedPreferences("com.xshe.quantum", 0)
                     var isFirst by remember { mutableStateOf(setting.getBoolean("FIRST", true)) }
-
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                            101
+                        )
+                    }
                     if (isFirst) {
                         FirstComposeView(
                             modifier = Modifier
@@ -223,15 +240,36 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     var savedHost by remember { mutableStateOf("") }
     var hostInputText by remember { mutableStateOf("") }
     val userName = setting.getString("User", "") ?: "User"
-    val mediaPlayer = remember { MediaPlayer() }
     var globalIsPlaying by remember { mutableStateOf(false) }
     var currentPlayingTrack by remember { mutableStateOf("") }
     var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
     val mContext = LocalContext.current
     var lastManualActionTime by remember { mutableLongStateOf(0L) }
+    var musicService by remember { mutableStateOf<MusicService?>(null) }
+    val mediaPlayer = musicService?.mediaPlayer // Service的播放器
 
     values.historyHost = setting.getString("history_host", "暂无历史连接主机").toString()
 
+
+    //启动音乐服务
+    DisposableEffect(Unit) {
+        val intent = Intent(mContext, MusicService::class.java)
+        mContext.startForegroundService(intent)
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                val binder = service as MusicService.MusicBinder
+                musicService = binder.getService()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                musicService = null
+            }
+        }
+        mContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        onDispose {
+            mContext.unbindService(connection)
+        }
+    }
     //轮询人数
     LaunchedEffect(i, values.roomName) {
         while (true) {
@@ -257,7 +295,8 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         }
     }
     // 核心轮询同步逻辑
-    LaunchedEffect(values.roomName, savedHost) {
+    LaunchedEffect(values.roomName, savedHost, musicService) {
+        val player = musicService?.mediaPlayer ?: return@LaunchedEffect
         while (true) {
             if (savedHost.isNotBlank() && !values.roomName.isNullOrEmpty()) {
                 InternetHelper().getMusicStatus(
@@ -265,9 +304,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                     values.roomName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
-                            // 如果刚手动操作过，跳过本次同步
                             if (System.currentTimeMillis() - lastManualActionTime < 3000) return
-
                             val json = JSONObject(responseBody)
                             val sPause = json.optBoolean("is_music_pause", true)
                             val sTime = json.optInt("current_music_time", 0)
@@ -281,30 +318,30 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                                     values.roomName,
                                     sMusic
                                 )
-                                mediaPlayer.reset()
-                                mediaPlayer.setDataSource(playUrl)
-                                mediaPlayer.prepareAsync()
-                                mediaPlayer.setOnPreparedListener {
+                                player.reset()
+                                player.setDataSource(playUrl)
+                                player.prepareAsync()
+                                player.setOnPreparedListener {
                                     it.seekTo(sTime * 1000)
                                     if (!sPause) it.start()
                                     globalIsPlaying = !sPause
                                 }
                             } else if (sMusic.isNotBlank()) {
                                 if (!sPause != globalIsPlaying) {
-                                    if (sPause) mediaPlayer.pause() else mediaPlayer.start()
+                                    if (sPause) player.pause() else player.start()
                                     globalIsPlaying = !sPause
                                 }
-                                val localSec = mediaPlayer.currentPosition / 1000
+                                val localSec = player.currentPosition / 1000
                                 if (sPause) {
                                     // 若服务端已暂停
                                     if (Math.abs(localSec - sTime) > 2) {
-                                        mediaPlayer.seekTo(sTime * 1000)
+                                        player.seekTo(sTime * 1000)
                                     }
                                 } else {
                                     // 若服务端在播，只有当本地进度落后超过 3 秒才追赶
                                     // 如果本地进度比服务端快，则跳过覆盖，等待本地主动同步
                                     if (sTime > localSec + 3) {
-                                        mediaPlayer.seekTo(sTime * 1000)
+                                        player.seekTo(sTime * 1000)
                                     }
                                 }
                             }
@@ -317,9 +354,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { mediaPlayer.release() }
-    }
+
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -1074,11 +1109,18 @@ fun MusicView(
     hostName: String,
     roomName: String,
     tools: Tools,
-    mediaPlayer: MediaPlayer,
+    mediaPlayer: MediaPlayer?,
     isPlaying: Boolean,
     currentPlayingTrack: String,
     onPlayingStateChange: (Boolean) -> Unit
 ) {
+    if (mediaPlayer == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("正在连接播放服务...")
+        }
+        return
+    }
+
     val mcontext = LocalContext.current
     val musicList = remember { mutableStateListOf<String>() }
     var currentPos by remember { mutableFloatStateOf(0f) }
@@ -1097,7 +1139,7 @@ fun MusicView(
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPos = mediaPlayer.currentPosition.toFloat()
-            delay(1000) // 每1秒更新一次 UI
+            delay(1000) // 每1秒更新一次UI
         }
     }
 
@@ -1148,27 +1190,72 @@ fun MusicView(
             contentPadding = PaddingValues(16.dp)
         ) {
             items(musicList) { fileName ->
-                val isThisTrackPlaying = isPlaying && currentPlayingTrack == fileName
+                val isThisTrack = currentPlayingTrack == fileName
+                // 获取歌曲的远程流地址
+                val trackUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
+                // 记住封面状态
+                var albumArt by remember(fileName) { mutableStateOf<Bitmap?>(null) }
+
+                // 文件名变化时，异步加载封面
+                LaunchedEffect(fileName) {
+                    albumArt = tools.getAudioAlbumArt(trackUrl)
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                         .background(
-                            if (isThisTrackPlaying) MaterialTheme.colorScheme.primaryContainer.copy(
-                                alpha = 0.3f
-                            )
+                            if (isThisTrack) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             else Color.Transparent,
                             RoundedCornerShape(8.dp)
                         )
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    //封面展示
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp) // 封面大小
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (albumArt != null) {
+                            // 显示解析出的封面
+                            Image(
+                                bitmap = albumArt!!.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            // 没有封面，显示默认图标
+                            Icon(
+                                imageVector = if (isThisTrack && isPlaying) Icons.Default.MusicNote else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = if (isThisTrack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
                     Text(
                         text = fileName,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        style = if (isThisTrack) {
+                            MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            MaterialTheme.typography.bodyLarge
+                        }
                     )
+
                     IconButton(onClick = {
                         val playUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
                         mediaPlayer.reset()
@@ -1177,7 +1264,7 @@ fun MusicView(
                         mediaPlayer.setOnPreparedListener {
                             it.start()
                             onPlayingStateChange(true)
-                            // 切歌瞬间同步给服务端进度0
+                            // 同步给服务端进度 0
                             InternetHelper().updateMusicStatus(
                                 hostName, roomName, false, 0, fileName,
                                 object : InternetHelper.RoomRequestCallback {
@@ -1185,7 +1272,12 @@ fun MusicView(
                                     override fun onFailure() {}
                                 })
                         }
-                    }) { Icon(Icons.Default.PlayArrow, null) }
+                    }) {
+                        Icon(
+                            imageVector = if (isThisTrack && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = null
+                        )
+                    }
                 }
             }
         }
@@ -1208,17 +1300,11 @@ fun MusicView(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Slider(
                         value = currentPos,
-                        onValueChange = {
-                            currentPos = it
-                        },
+                        onValueChange = { currentPos = it },
                         onValueChangeFinished = {
                             mediaPlayer.seekTo(currentPos.toInt())
-                            // 手动拖动后立即同步到服务器
                             InternetHelper().updateMusicStatus(
-                                hostName,
-                                roomName,
-                                !isPlaying,
-                                (currentPos / 1000).toInt(),
+                                hostName, roomName, !isPlaying, (currentPos / 1000).toInt(),
                                 currentPlayingTrack,
                                 object : InternetHelper.RoomRequestCallback {
                                     override fun onSuccess() {}
@@ -1272,8 +1358,7 @@ fun MusicView(
                     FilledIconButton(
                         onClick = {
                             if (currentPlayingTrack.isBlank()) return@FilledIconButton
-
-                            val nextPauseState = isPlaying // 如果当前在播，下一步即是暂停(True)
+                            val nextPauseState = isPlaying
                             if (isPlaying) {
                                 mediaPlayer.pause()
                                 onPlayingStateChange(false)
@@ -1281,8 +1366,6 @@ fun MusicView(
                                 mediaPlayer.start()
                                 onPlayingStateChange(true)
                             }
-
-                            //点击瞬间上交进度与状态
                             InternetHelper().updateMusicStatus(
                                 hostName,
                                 roomName,

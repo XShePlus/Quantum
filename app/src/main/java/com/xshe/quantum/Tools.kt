@@ -1,11 +1,16 @@
 package com.xshe.quantum
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -195,7 +200,23 @@ class Tools {
                 }
             })
     }
-
+    suspend fun getAudioAlbumArt(url: String): Bitmap? {
+        return withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(url, HashMap<String, String>())
+                val artBytes = retriever.embeddedPicture
+                if (artBytes != null) {
+                    BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
+                } else null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            } finally {
+                retriever.release()
+            }
+        }
+    }
     fun fetchMusicList(hostName: String, roomName: String, onResult: (List<String>) -> Unit) {
         InternetHelper().getMusicList(hostName, roomName, object : InternetHelper.RequestCallback {
             override fun onSuccess(responseBody: String) {
