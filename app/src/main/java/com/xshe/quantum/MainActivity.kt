@@ -15,6 +15,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -119,6 +120,8 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.graphicsLayer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -327,12 +330,39 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                     Triple(stringResource(R.string.chatButton), 1, Icons.AutoMirrored.Filled.Chat),
                     Triple(stringResource(R.string.musicButton), 2, Icons.Default.MusicNote)
                 )
+
                 tabs.forEach { (label, index, icon) ->
+                    val isTabDisabled = (index == 1 || index == 2) && !values.isInRoom
+
                     NavigationBarItem(
                         selected = i == index,
-                        onClick = { i = index },
-                        icon = { Icon(imageVector = icon, contentDescription = label) },
-                        label = { Text(label) }
+                        onClick = {
+                            if (!isTabDisabled) {
+                                i = index
+                            } else {
+                                tools.showToast(mContext, "请先进入一个房间")
+                            }
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isTabDisabled) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                } else {
+                                    if (i == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = label,
+                                color = if (isTabDisabled) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                } else Color.Unspecified
+                            )
+                        },
+                        enabled = true
                     )
                 }
             }
@@ -371,6 +401,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                             buttonColors = ButtonDefaults.buttonColors(),
                             tools = tools, values = values, itemList = itemList,
                             host = savedHost, hostNameInput = hostInputText,
+                            onExitRoomSuccess = { i = 0 },
                             onHostNameChange = { hostInputText = it },
                             onConnectSuccess = { newHost ->
                                 savedHost = newHost; hostInputText = ""
@@ -406,6 +437,7 @@ fun HostList(
     itemList: SnapshotStateList<Values.ListItem>,
     host: String,
     hostNameInput: String,
+    onExitRoomSuccess: () -> Unit,
     onHostNameChange: (String) -> Unit,
     onConnectSuccess: (String) -> Unit
 ) {
@@ -626,7 +658,10 @@ fun HostList(
             }
         } else {
             LazyColumn(Modifier.padding(horizontal = 17.dp, vertical = 8.dp)) {
-                items(items = itemList) { item ->
+                items(
+                    items = itemList,
+                    key = { it.itemHost }
+                ) { item ->
                     ConnectListItem(listItem = item, values = values, onSelectClick = {
                         val index = itemList.indexOf(item)
                         if (index != -1) {
@@ -643,6 +678,7 @@ fun HostList(
                                             itemList[index] = item.copy(isSelected = false)
                                             values.isCanSelected = true
                                             values.roomName = ""
+                                            onExitRoomSuccess()
                                         }
 
                                         override fun onFailure() {}
@@ -813,24 +849,26 @@ fun ConnectListItem(
     onSelectClick: () -> Unit
 ) {
     val isSelected = listItem.isSelected
-    val animatedElevation by animateDpAsState(
-        targetValue = if (isSelected) 4.dp else 0.dp,
-        label = "elevation"
-    )
+    val cardShape = RoundedCornerShape(16.dp)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
+            .graphicsLayer {
+                shadowElevation = if (isSelected) 20f else 0f
+                shape = cardShape
+                clip = true
+            }
             .clickable(onClick = onSelectClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = cardShape,
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected)
                 MaterialTheme.colorScheme.primaryContainer
             else
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = animatedElevation)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -1159,7 +1197,7 @@ fun MusicView(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Button(
-                    onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac"))},
+                    onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac")) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("选择并上传音乐")

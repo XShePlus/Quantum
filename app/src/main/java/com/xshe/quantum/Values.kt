@@ -10,7 +10,7 @@ class Values {
     var roomName by mutableStateOf("null")
     val messageList = mutableStateListOf<String>()
     var historyHost = ""
-
+    val isInRoom: Boolean get() = !isCanSelected
 
     data class RoomNumbers(var present: Int = 0, var max: Int = 0)
     data class ListItem(
