@@ -129,6 +129,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -738,6 +741,7 @@ fun HostList(
                                             values.roomName = ""
                                             onExitRoomSuccess()
                                         }
+
                                         override fun onFailure() {}
                                     })
                             }
@@ -1139,6 +1143,37 @@ fun MusicView(
     val musicList = remember { mutableStateListOf<String>() }
     var currentPos by remember { mutableFloatStateOf(0f) }
     val duration = if (mediaPlayer.duration > 0) mediaPlayer.duration.toFloat() else 1f
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val playTrack = playTrack@{ fileName: String ->
+        if (fileName.isBlank()) return@playTrack
+        val playUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
+        mediaPlayer.apply {
+            try {
+                stop()
+                reset()
+                setDataSource(playUrl)
+                prepareAsync()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    onPlayingStateChange(true)
+                    // 更新服务器状态
+                    InternetHelper().updateMusicStatus(
+                        hostName, roomName, false, 0, fileName,
+                        object : InternetHelper.RoomRequestCallback {
+                            override fun onSuccess() {}
+                            override fun onFailure() {}
+                        }
+                    )
+                }
+                setOnErrorListener { _, what, extra ->
+                    onPlayingStateChange(false)
+                    true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     // 获取列表
     LaunchedEffect(roomName) {
@@ -1156,7 +1191,21 @@ fun MusicView(
             delay(1000) // 每1秒更新一次UI
         }
     }
-
+    LaunchedEffect(mediaPlayer) {
+        mediaPlayer.setOnCompletionListener {
+            mainHandler.post {
+                val currentIndex = musicList.indexOf(currentPlayingTrack)
+                if (currentIndex != -1 && currentIndex < musicList.size - 1) {
+                    // 自动下一首
+                    val nextTrack = musicList[currentIndex + 1]
+                    playTrack(nextTrack)
+                } else {
+                    // 列表结束，重置状态
+                    onPlayingStateChange(false)
+                }
+            }
+        }
+    }
     // 本地进度快时上传至服务端
     LaunchedEffect(isPlaying, currentPlayingTrack) {
         while (isPlaying) {
@@ -1277,21 +1326,7 @@ fun MusicView(
                     )
 
                     IconButton(onClick = {
-                        val playUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
-                        mediaPlayer.reset()
-                        mediaPlayer.setDataSource(playUrl)
-                        mediaPlayer.prepareAsync()
-                        mediaPlayer.setOnPreparedListener {
-                            it.start()
-                            onPlayingStateChange(true)
-                            // 同步给服务端进度 0
-                            InternetHelper().updateMusicStatus(
-                                hostName, roomName, false, 0, fileName,
-                                object : InternetHelper.RoomRequestCallback {
-                                    override fun onSuccess() {}
-                                    override fun onFailure() {}
-                                })
-                        }
+                        playTrack(fileName)
                     }) {
                         Icon(
                             imageVector = if (isThisTrack && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -1304,19 +1339,33 @@ fun MusicView(
 
         // 底部控制区
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+            tonalElevation = 8.dp
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Button(
-                    onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac")) },
-                    modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 12.dp, bottom = 28.dp)
+            ) {
+               //上传按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text("选择并上传音乐")
+                    TextButton(
+                        onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac")) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("上传音乐", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
 
-                Spacer(Modifier.height(12.dp))
-
+                //进度条
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Slider(
                         value = currentPos,
@@ -1335,76 +1384,107 @@ fun MusicView(
                         valueRange = 0f..duration,
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier.height(32.dp)
                     )
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = tools.formatTime(currentPos.toInt()),
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = tools.formatTime(duration.toInt()),
-                            style = MaterialTheme.typography.labelSmall
-                        )
+                        Text(tools.formatTime(currentPos.toInt()), style = MaterialTheme.typography.labelSmall)
+                        Text(tools.formatTime(duration.toInt()), style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
+                //歌曲信息 + 播放按钮
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (currentPlayingTrack.isNotBlank()) currentPlayingTrack else "未选择曲目",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = if (isPlaying) "正在播放" else "暂停中",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    //歌曲名
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text(
+                                text = if (currentPlayingTrack.isNotBlank()) currentPlayingTrack else "未选择曲目",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isPlaying) "正在播放" else "暂停中",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
-                    FilledIconButton(
-                        onClick = {
-                            if (currentPlayingTrack.isBlank()) return@FilledIconButton
-                            val nextPauseState = isPlaying
-                            if (isPlaying) {
-                                mediaPlayer.pause()
-                                onPlayingStateChange(false)
-                            } else {
-                                mediaPlayer.start()
-                                onPlayingStateChange(true)
-                            }
-                            InternetHelper().updateMusicStatus(
-                                hostName,
-                                roomName,
-                                nextPauseState,
-                                (mediaPlayer.currentPosition / 1000),
-                                currentPlayingTrack,
-                                object : InternetHelper.RoomRequestCallback {
-                                    override fun onSuccess() {}
-                                    override fun onFailure() {}
-                                }
-                            )
-                        },
-                        modifier = Modifier.size(56.dp)
+                    //控制按钮
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(32.dp)
-                        )
+                        // 上一首
+                        IconButton(
+                            onClick = {
+                                val currentIndex = musicList.indexOf(currentPlayingTrack)
+                                if (currentIndex > 0) playTrack(musicList[currentIndex - 1])
+                            },
+                            enabled = musicList.indexOf(currentPlayingTrack) > 0
+                        ) {
+                            Icon(Icons.Default.SkipPrevious, "上一首", modifier = Modifier.size(30.dp))
+                        }
+
+                        // 播放/暂停
+                        Surface(
+                            onClick = {
+                                if (currentPlayingTrack.isBlank()) return@Surface
+                                val nextPauseState = isPlaying
+                                if (isPlaying) {
+                                    mediaPlayer.pause()
+                                    onPlayingStateChange(false)
+                                } else {
+                                    mediaPlayer.start()
+                                    onPlayingStateChange(true)
+                                }
+                                InternetHelper().updateMusicStatus(
+                                    hostName, roomName, nextPauseState,
+                                    (mediaPlayer.currentPosition / 1000), currentPlayingTrack,
+                                    object : InternetHelper.RoomRequestCallback {
+                                        override fun onSuccess() {}
+                                        override fun onFailure() {}
+                                    }
+                                )
+                            },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        // 下一首
+                        IconButton(
+                            onClick = {
+                                val currentIndex = musicList.indexOf(currentPlayingTrack)
+                                if (currentIndex != -1 && currentIndex < musicList.size - 1) {
+                                    playTrack(musicList[currentIndex + 1])
+                                }
+                            },
+                            enabled = musicList.indexOf(currentPlayingTrack) < musicList.size - 1
+                        ) {
+                            Icon(Icons.Default.SkipNext, "下一首", modifier = Modifier.size(30.dp))
+                        }
                     }
                 }
             }
