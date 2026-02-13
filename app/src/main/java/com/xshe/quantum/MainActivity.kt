@@ -127,6 +127,7 @@ import org.json.JSONArray
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -294,6 +295,19 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
             delay(20 * 1000)
         }
     }
+
+    LaunchedEffect(values.roomName) {
+        if (values.roomName.isNullOrEmpty() || values.roomName == "null") {
+            musicService?.mediaPlayer?.let { player ->
+                if (player.isPlaying) {
+                    player.stop()
+                    player.reset()
+                }
+            }
+            globalIsPlaying = false
+            currentPlayingTrack = ""
+        }
+    }
     // 核心轮询同步逻辑
     LaunchedEffect(values.roomName, savedHost, musicService) {
         val player = musicService?.mediaPlayer ?: return@LaunchedEffect
@@ -419,7 +433,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                         if (values.roomName.isNullOrEmpty()) "null" else "\uD83D\uDCCD ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
                     },
                     modifier = Modifier
-                        .statusBarsPadding()
                         .padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
                 )
@@ -436,6 +449,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                             buttonColors = ButtonDefaults.buttonColors(),
                             tools = tools, values = values, itemList = itemList,
                             host = savedHost, hostNameInput = hostInputText,
+                            musicService = musicService,
                             onExitRoomSuccess = { i = 0 },
                             onHostNameChange = { hostInputText = it },
                             onConnectSuccess = { newHost ->
@@ -472,6 +486,7 @@ fun HostList(
     itemList: SnapshotStateList<Values.ListItem>,
     host: String,
     hostNameInput: String,
+    musicService: MusicService?,
     onExitRoomSuccess: () -> Unit,
     onHostNameChange: (String) -> Unit,
     onConnectSuccess: (String) -> Unit
@@ -710,12 +725,19 @@ fun HostList(
                                     item.itemHost,
                                     object : Tools.gacCallback {
                                         override fun onSuccess() {
+                                            // 停止音乐播放
+                                            musicService?.mediaPlayer?.let { player ->
+                                                if (player.isPlaying) {
+                                                    player.stop()
+                                                }
+                                                player.reset()
+                                            }
+
                                             itemList[index] = item.copy(isSelected = false)
                                             values.isCanSelected = true
                                             values.roomName = ""
                                             onExitRoomSuccess()
                                         }
-
                                         override fun onFailure() {}
                                     })
                             }
@@ -965,19 +987,12 @@ fun ChatView(
                     values.roomName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
-                            try {
-                                val jsonArray = JSONArray(responseBody)
-                                // 只有当数量不一致时更新，避免频繁刷新导致动画异常
-                                if (jsonArray.length() != values.messageList.size) {
-                                    val newList = mutableListOf<String>()
-                                    for (i in 0 until jsonArray.length()) {
-                                        newList.add(jsonArray.getString(i))
-                                    }
-                                    values.messageList.clear()
-                                    values.messageList.addAll(newList)
+                            val jsonArray = JSONArray(responseBody)
+                            if (jsonArray.length() > values.messageList.size) {
+                                val currentSize = values.messageList.size
+                                for (i in currentSize until jsonArray.length()) {
+                                    values.messageList.add(jsonArray.getString(i))
                                 }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
                             }
                         }
 
@@ -1001,50 +1016,49 @@ fun ChatView(
             reverseLayout = true, // 底部往上排，新消息在最下面弹出
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            items(
-                items = values.messageList.reversed(),
-                key = { msg -> msg.hashCode() + values.messageList.indexOf(msg) }
-            ) { msg ->
-                val isMe = msg.startsWith("$userName:")
-                val displayMsg = msg.substringAfter(":")
+            itemsIndexed(values.messageList.reversed()) { index, msg ->
+                key(index) {
+                    val isMe = msg.startsWith("$userName:")
+                    val displayMsg = msg.substringAfter(":")
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateItem(
-                            placementSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem(
+                                placementSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                fadeInSpec = tween(300),
+                                fadeOutSpec = tween(300)
                             ),
-                            fadeInSpec = tween(300),
-                            fadeOutSpec = tween(300)
-                        ),
-                    horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
-                ) {
-                    Card(
-                        shape = RoundedCornerShape(
-                            topStart = 16.dp, topEnd = 16.dp,
-                            bottomStart = if (isMe) 16.dp else 0.dp,
-                            bottomEnd = if (isMe) 0.dp else 16.dp
-                        ),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
-                        ),
-                        modifier = Modifier.widthIn(max = 280.dp)
+                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            if (!isMe) {
+                        Card(
+                            shape = RoundedCornerShape(
+                                topStart = 16.dp, topEnd = 16.dp,
+                                bottomStart = if (isMe) 16.dp else 0.dp,
+                                bottomEnd = if (isMe) 0.dp else 16.dp
+                            ),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            modifier = Modifier.widthIn(max = 280.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                if (!isMe) {
+                                    Text(
+                                        text = msg.substringBefore(":"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 Text(
-                                    text = msg.substringBefore(":"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = displayMsg,
+                                    color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                            Text(
-                                text = displayMsg,
-                                color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
                         }
                     }
                 }
@@ -1193,12 +1207,18 @@ fun MusicView(
                 val isThisTrack = currentPlayingTrack == fileName
                 // 获取歌曲的远程流地址
                 val trackUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
-                // 记住封面状态
-                var albumArt by remember(fileName) { mutableStateOf<Bitmap?>(null) }
+                //尝试从缓存获取初始值
+                var albumArt by remember(fileName) { mutableStateOf(Tools.ImageCache.get(trackUrl)) }
 
-                // 文件名变化时，异步加载封面
                 LaunchedEffect(fileName) {
-                    albumArt = tools.getAudioAlbumArt(trackUrl)
+                    //如果缓存没有，才去解析
+                    if (albumArt == null) {
+                        val bitmap = tools.getAudioAlbumArt(trackUrl)
+                        if (bitmap != null) {
+                            Tools.ImageCache.put(trackUrl, bitmap)
+                            albumArt = bitmap
+                        }
+                    }
                 }
                 Row(
                     modifier = Modifier
