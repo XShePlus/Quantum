@@ -137,6 +137,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.core.app.ActivityCompat
+import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -243,7 +244,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     val itemList = remember { mutableStateListOf<Values.ListItem>() }
     var savedHost by remember { mutableStateOf("") }
     var hostInputText by remember { mutableStateOf("") }
-    val userName = setting.getString("User", "") ?: "User"
+    tools.userName = setting.getString("User", "") ?: "User"
     var globalIsPlaying by remember { mutableStateOf(false) }
     var currentPlayingTrack by remember { mutableStateOf("") }
     var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
@@ -319,6 +320,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 InternetHelper().getMusicStatus(
                     savedHost,
                     values.roomName,
+                    tools.userName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
                             if (System.currentTimeMillis() - lastManualActionTime < 3000) return
@@ -432,7 +434,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
             ) {
                 //📍
                 Text(
-                    text = if (i == 0) "👋 Hi, $userName" else {
+                    text = if (i == 0) "👋 Hi, ${tools.userName}" else {
                         if (values.roomName.isNullOrEmpty()) "null" else "\uD83D\uDCCD ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
                     },
                     modifier = Modifier
@@ -502,6 +504,7 @@ fun HostList(
     var showPasswordDialog by remember { mutableStateOf(false) }
     var pendingRoomItem by remember { mutableStateOf<Values.ListItem?>(null) }
 
+
     val updateRoomList = {
         itemList.clear()
         if (tools.roomNames.isNotEmpty()) {
@@ -538,7 +541,7 @@ fun HostList(
             onConfirmation = { roomName, password ->
                 showPasswordDialog = false
                 tools.enterRoom(
-                    mContext, host, roomName, password,
+                    mContext, host, roomName, password, tools.userName,
                     object : Tools.gacCallback {
                         override fun onSuccess() {
                             // 找到并更新列表项
@@ -726,6 +729,7 @@ fun HostList(
                                     mContext,
                                     host,
                                     item.itemHost,
+                                    tools.userName,
                                     object : Tools.gacCallback {
                                         override fun onSuccess() {
                                             // 停止音乐播放
@@ -989,6 +993,7 @@ fun ChatView(
                 InternetHelper().getMessages(
                     url,
                     values.roomName,
+                    tools.userName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
                             val jsonArray = JSONArray(responseBody)
@@ -1144,6 +1149,9 @@ fun MusicView(
     var currentPos by remember { mutableFloatStateOf(0f) }
     val duration = if (mediaPlayer.duration > 0) mediaPlayer.duration.toFloat() else 1f
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val scope = rememberCoroutineScope()
+    var isUploading by remember { mutableStateOf(false) }
+
     val playTrack = playTrack@{ fileName: String ->
         if (fileName.isBlank()) return@playTrack
         val playUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
@@ -1175,12 +1183,57 @@ fun MusicView(
         }
     }
 
+    // 文件上传
+    val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNotEmpty()) {
+                isUploading = true
+                uris.forEach { uri ->
+                    tools.uploadMusicFile(
+                        mcontext,
+                        hostName,
+                        roomName,
+                        uri,
+                        object : Tools.gacCallback {
+                            override fun onSuccess() {
+                                tools.fetchMusicList(hostName, roomName) { list ->
+                                    musicList.clear()
+                                    musicList.addAll(list)
+                                    isUploading = false
+                                }
+                            }
+
+                            override fun onFailure() {
+                                isUploading = false
+                                tools.showToast(mcontext, "上传失败")
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+    if (isUploading) {
+        LoadingDialog()
+    }
+
     // 获取列表
     LaunchedEffect(roomName) {
         if (roomName != "null") {
             tools.fetchMusicList(hostName, roomName) { list ->
                 musicList.clear()
                 musicList.addAll(list)
+
+                scope.launch(Dispatchers.IO) {
+                    list.forEach { fileName ->
+                        val url = InternetHelper().getStreamUrl(hostName, roomName, fileName)
+                        if (Tools.ImageCache.get(url) == null) {
+                            tools.getAudioAlbumArt(url)?.let {
+                                Tools.ImageCache.put(url, it)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1223,26 +1276,6 @@ fun MusicView(
         }
     }
 
-    // 文件上传
-    val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            uris.forEach { uri ->
-                tools.uploadMusicFile(
-                    mcontext,
-                    hostName,
-                    roomName,
-                    uri,
-                    object : Tools.gacCallback {
-                        override fun onSuccess() {
-                            tools.fetchMusicList(hostName, roomName) { list ->
-                                musicList.clear(); musicList.addAll(list)
-                            }
-                        }
-
-                        override fun onFailure() {}
-                    })
-            }
-        }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 音乐列表
@@ -1252,91 +1285,21 @@ fun MusicView(
                 .fillMaxWidth(),
             contentPadding = PaddingValues(16.dp)
         ) {
-            items(musicList) { fileName ->
-                val isThisTrack = currentPlayingTrack == fileName
-                // 获取歌曲的远程流地址
-                val trackUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
-                //尝试从缓存获取初始值
-                var albumArt by remember(fileName) { mutableStateOf(Tools.ImageCache.get(trackUrl)) }
-
-                LaunchedEffect(fileName) {
-                    //如果缓存没有，才去解析
-                    if (albumArt == null) {
-                        val bitmap = tools.getAudioAlbumArt(trackUrl)
-                        if (bitmap != null) {
-                            Tools.ImageCache.put(trackUrl, bitmap)
-                            albumArt = bitmap
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .background(
-                            if (isThisTrack) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                            else Color.Transparent,
-                            RoundedCornerShape(8.dp)
-                        )
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    //封面展示
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp) // 封面大小
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (albumArt != null) {
-                            // 显示解析出的封面
-                            Image(
-                                bitmap = albumArt!!.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            // 没有封面，显示默认图标
-                            Icon(
-                                imageVector = if (isThisTrack && isPlaying) Icons.Default.MusicNote else Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                                tint = if (isThisTrack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Text(
-                        text = fileName,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = if (isThisTrack) {
-                            MaterialTheme.typography.bodyLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            MaterialTheme.typography.bodyLarge
-                        }
-                    )
-
-                    IconButton(onClick = {
-                        playTrack(fileName)
-                    }) {
-                        Icon(
-                            imageVector = if (isThisTrack && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = null
-                        )
-                    }
-                }
+            items(
+                items = musicList,
+                key = { it }
+            ) { fileName ->
+                MusicItem(
+                    fileName = fileName,
+                    hostName = hostName,
+                    roomName = roomName,
+                    tools = tools,
+                    isThisTrack = currentPlayingTrack == fileName,
+                    isPlaying = isPlaying,
+                    onPlayClick = { playTrack(fileName) }
+                )
             }
         }
-
         // 底部控制区
         Surface(
             modifier = Modifier
@@ -1350,16 +1313,28 @@ fun MusicView(
                     .padding(horizontal = 20.dp)
                     .padding(top = 12.dp, bottom = 28.dp)
             ) {
-               //上传按钮
+                //上传按钮
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(
-                        onClick = { launcher.launch(arrayOf("audio/mpeg", "audio/flac", "audio/aac")) },
+                        onClick = {
+                            launcher.launch(
+                                arrayOf(
+                                    "audio/mpeg",
+                                    "audio/flac",
+                                    "audio/aac"
+                                )
+                            )
+                        },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(Modifier.width(4.dp))
                         Text("上传音乐", style = MaterialTheme.typography.labelLarge)
                     }
@@ -1390,11 +1365,19 @@ fun MusicView(
                         modifier = Modifier.height(32.dp)
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(tools.formatTime(currentPos.toInt()), style = MaterialTheme.typography.labelSmall)
-                        Text(tools.formatTime(duration.toInt()), style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            tools.formatTime(currentPos.toInt()),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            tools.formatTime(duration.toInt()),
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 }
 
@@ -1406,7 +1389,10 @@ fun MusicView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     //歌曲名
-                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Column {
                             Text(
                                 text = if (currentPlayingTrack.isNotBlank()) currentPlayingTrack else "未选择曲目",
@@ -1435,7 +1421,11 @@ fun MusicView(
                             },
                             enabled = musicList.indexOf(currentPlayingTrack) > 0
                         ) {
-                            Icon(Icons.Default.SkipPrevious, "上一首", modifier = Modifier.size(30.dp))
+                            Icon(
+                                Icons.Default.SkipPrevious,
+                                "上一首",
+                                modifier = Modifier.size(30.dp)
+                            )
                         }
 
                         // 播放/暂停
@@ -1487,6 +1477,116 @@ fun MusicView(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun MusicItem(
+    fileName: String,
+    hostName: String,
+    roomName: String,
+    tools: Tools,
+    isThisTrack: Boolean,
+    isPlaying: Boolean,
+    onPlayClick: () -> Unit
+) {
+    val trackUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
+    // 优先尝试从内存缓存中获取
+    var albumArt by remember(fileName) { mutableStateOf(Tools.ImageCache.get(trackUrl)) }
+
+    //异步解析封面，避免阻塞主线程
+    LaunchedEffect(trackUrl) {
+        if (albumArt == null) {
+            val bitmap = tools.getAudioAlbumArt(trackUrl) // Tools中已使用 Dispatchers.IO
+            if (bitmap != null) {
+                Tools.ImageCache.put(trackUrl, bitmap)
+                albumArt = bitmap
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                if (isThisTrack) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
+            .clickable { onPlayClick() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 封面展示
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (albumArt != null) {
+                Image(
+                    bitmap = albumArt!!.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = if (isThisTrack && isPlaying) Icons.Default.MusicNote else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = if (isThisTrack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Text(
+            text = fileName,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = if (isThisTrack) MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyLarge
+        )
+
+        IconButton(onClick = onPlayClick) {
+            Icon(
+                imageVector = if (isThisTrack && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = null
+            )
+        }
+    }
+}
+
+@Composable
+fun LoadingDialog() {
+    Dialog(
+        onDismissRequest = { },
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = "正在上传，请稍候...", style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

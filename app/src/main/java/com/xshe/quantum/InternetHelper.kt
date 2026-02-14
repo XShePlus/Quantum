@@ -33,10 +33,12 @@ class InternetHelper {
         fun onSuccess(responseBody: String)
         fun onFailure()
     }
+
     interface PAMCallback {
-        fun onSuccess(p:Int,m: Int)
+        fun onSuccess(p: Int, m: Int)
         fun onFailure()
     }
+
     interface RoomRequestCallback {
         fun onSuccess()
         fun onFailure()
@@ -85,7 +87,7 @@ class InternetHelper {
             put("room_name", roomName)
             put("max_number", maxNumber)
             put("cancel_time", cancelTime)
-            put("password",password)
+            put("password", password)
         }
         val requestBody =
             jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -101,16 +103,24 @@ class InternetHelper {
         }
     }
 
-    fun enterRoom(mContext: Context,url: String, roomName: String, password: String,callback: RoomRequestCallback) {
+    fun enterRoom(
+        mContext: Context,
+        url: String,
+        roomName: String,
+        password: String,
+        userName: String,
+        callback: RoomRequestCallback
+    ) {
         val jsonObject = JSONObject().apply {
             put("room_name", roomName)
-            put("password",password)
+            put("password", password)
+            put("user_name", userName)
         }
         val requestBody =
             jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request =
             Request.Builder().url("${formatUrl(url)}/api/enter_room").post(requestBody).build()
-        val tools= Tools()
+        val tools = Tools()
         thread {
             try {
                 val response = okHttpClient.newCall(request).execute()
@@ -119,8 +129,8 @@ class InternetHelper {
                 if (response.isSuccessful && result.contains("行")) {
                     callback.onSuccess()
                 } else {
-                    if(response.code==401) tools.showToast(mContext,"房间已满")
-                    else if(response.code==402) tools.showToast(mContext,"密码错误")
+                    if (response.code == 401) tools.showToast(mContext, "房间已满")
+                    else if (response.code == 402) tools.showToast(mContext, "密码错误")
                     callback.onFailure()
                 }
             } catch (e: Exception) {
@@ -129,8 +139,11 @@ class InternetHelper {
         }
     }
 
-    fun exitRoom(url: String, roomName: String, callback: RoomRequestCallback) {
-        val jsonObject = JSONObject().apply { put("room_name", roomName) }
+    fun exitRoom(url: String, roomName: String, userName: String, callback: RoomRequestCallback) {
+        val jsonObject = JSONObject().apply {
+            put("room_name", roomName)
+            put("user_name", userName)
+        }
         val requestBody =
             jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request =
@@ -151,13 +164,20 @@ class InternetHelper {
         }
     }
 
-    fun getMessages(url: String, roomName: String, callback: RequestCallback) {
-        val jsonObject = JSONObject().apply { put("room_name", roomName) }
-        val requestBody =
-            jsonObject.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request =
-            Request.Builder().url("${formatUrl(url)}/api/get_message").post(requestBody).build()
-
+    fun getMessages(
+        hostName: String,
+        roomName: String,
+        userName: String, // 新增
+        callback: RequestCallback
+    ) {
+        val client = okHttpClient
+        val url = formatUrl(hostName)
+        val json = JSONObject().apply {
+            put("room_name", roomName)
+            put("user_name", userName) // 新增
+        }
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val request = Request.Builder().url("$url/api/get_message").post(body).build()
         thread {
             try {
                 val response = okHttpClient.newCall(request).execute()
@@ -245,36 +265,25 @@ class InternetHelper {
         }
     }
 
-    fun getMusicStatus(hostName: String, roomName: String, callback: RequestCallback) {
-        val client = OkHttpClient()
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
-
+    fun getMusicStatus(
+        hostName: String,
+        roomName: String,
+        userName: String,
+        callback: RequestCallback
+    ) {
+        val client = okHttpClient
+        val url = formatUrl(hostName)
         val json = JSONObject().apply {
             put("room_name", roomName)
+            put("user_name", userName) 
         }
-
-        val body = RequestBody.create(
-            "application/json; charset=utf-8".toMediaTypeOrNull(),
-            json.toString()
-        )
-
-        val request = Request.Builder()
-            .url("$url/api/get_music_status")
-            .post(body)
-            .build()
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val request = Request.Builder().url("$url/api/get_music_status").post(body).build()
 
         client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback.onFailure()
-            }
-
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
             override fun onResponse(call: Call, response: Response) {
-                val res = response.body?.string()
-                if (response.isSuccessful && res != null) {
-                    callback.onSuccess(res)
-                } else {
-                    callback.onFailure()
-                }
+                callback.onSuccess(response.body?.string() ?: "")
             }
         })
     }
@@ -288,7 +297,8 @@ class InternetHelper {
         val json = JSONObject().apply {
             put("room_name", roomName)
         }
-        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val body =
+            json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
 
         val request = Request.Builder()
             .url("$url/api/get_numbers")
@@ -310,7 +320,7 @@ class InternetHelper {
 
                         // 切回主线程更新 UI
                         Handler(Looper.getMainLooper()).post {
-                            callback.onSuccess(p=p,m=m)
+                            callback.onSuccess(p = p, m = m)
                         }
                     }
 

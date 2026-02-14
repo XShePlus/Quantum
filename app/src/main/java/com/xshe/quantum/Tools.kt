@@ -30,7 +30,7 @@ class Tools {
 
     val roomNames = mutableListOf<String>()
     val roomStatuses = mutableListOf<Boolean>()
-
+    var userName=""
     fun showToast(context: Context, msg: String) {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -113,28 +113,41 @@ class Tools {
         })
     }
 
-    fun enterRoom(mContext: Context, hostName: String, roomName: String, password: String, callback: gacCallback) {
-        InternetHelper().enterRoom(mContext,hostName, roomName, password,object : InternetHelper.RoomRequestCallback {
-            override fun onSuccess() {
-                connectAndCheck(mContext, hostName, object : gacCallback {
-                    override fun onSuccess() {
-                        callback.onSuccess()
-                    }
+    fun enterRoom(
+        mContext: Context,
+        hostName: String,
+        roomName: String,
+        password: String,
+        userName: String,
+        callback: gacCallback
+    ) {
+        InternetHelper().enterRoom(
+            mContext,
+            hostName,
+            roomName,
+            password,
+            userName,
+            object : InternetHelper.RoomRequestCallback {
+                override fun onSuccess() {
+                    connectAndCheck(mContext, hostName, object : gacCallback {
+                        override fun onSuccess() {
+                            callback.onSuccess()
+                        }
 
-                    override fun onFailure() {
-                        callback.onFailure()
-                    }
-                })
-            }
+                        override fun onFailure() {
+                            callback.onFailure()
+                        }
+                    })
+                }
 
-            override fun onFailure() {
-                callback.onFailure()
-            }
-        })
+                override fun onFailure() {
+                    callback.onFailure()
+                }
+            })
     }
 
-    fun exitRoom(mContext: Context, hostName: String, roomName: String, callback: gacCallback) {
-        InternetHelper().exitRoom(hostName, roomName, object : InternetHelper.RoomRequestCallback {
+    fun exitRoom(mContext: Context, hostName: String, roomName: String, userName: String,callback: gacCallback) {
+        InternetHelper().exitRoom(hostName, roomName, userName,object : InternetHelper.RoomRequestCallback {
             override fun onSuccess() {
                 connectAndCheck(mContext, hostName, object : gacCallback {
                     override fun onSuccess() {
@@ -167,14 +180,25 @@ class Tools {
         }
         return name
     }
-    object ImageCache {
-        private val cache = mutableMapOf<String, Bitmap>()
 
-        fun get(url: String): Bitmap? = cache[url]
+    object ImageCache {
+        private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+        private val cacheSize = maxMemory / 8
+
+        private val lruCache = object : android.util.LruCache<String, Bitmap>(cacheSize) {
+            override fun sizeOf(key: String, value: Bitmap): Int {
+                return value.byteCount / 1024
+            }
+        }
+
+        fun get(url: String): Bitmap? = lruCache.get(url)
         fun put(url: String, bitmap: Bitmap) {
-            cache[url] = bitmap
+            if (get(url) == null) {
+                lruCache.put(url, bitmap)
+            }
         }
     }
+
     fun uploadMusicFile(
         context: Context,
         hostName: String,
@@ -207,6 +231,7 @@ class Tools {
                 }
             })
     }
+
     suspend fun getAudioAlbumArt(url: String): Bitmap? {
         return withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
@@ -224,6 +249,7 @@ class Tools {
             }
         }
     }
+
     fun fetchMusicList(hostName: String, roomName: String, onResult: (List<String>) -> Unit) {
         InternetHelper().getMusicList(hostName, roomName, object : InternetHelper.RequestCallback {
             override fun onSuccess(responseBody: String) {
@@ -249,6 +275,7 @@ class Tools {
         roomNames.clear()
         roomStatuses.clear()
     }
+
     fun formatTime(milliseconds: Int): String {
         val totalSeconds = milliseconds / 1000
         val minutes = totalSeconds / 60
