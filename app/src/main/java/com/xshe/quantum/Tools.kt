@@ -78,31 +78,28 @@ class Tools {
             })
     }
 
-    fun connectAndCheck(mContext: Context, hostName: String, callback: gacCallback) {
-        val helper = InternetHelper()
-        helper.testAndGetServer(hostName, object : InternetHelper.RequestCallback {
+    fun connectAndCheck(mContext: android.content.Context, hostName: String, callback: gacCallback) {
+        InternetHelper().verifyConnect(hostName, object : InternetHelper.RequestCallback {
             override fun onSuccess(responseBody: String) {
                 try {
-                    val rootJson = JSONObject(responseBody)
-                    roomNames.clear()
-                    roomStatuses.clear()
-
-                    if (rootJson.has("code") && rootJson.optInt("code") == 900) {
-                        callback.onSuccess()
-                        return
-                    }
-
-                    val roomNameArray = rootJson.optJSONArray("room_name_list")
-                    val roomStatusArray = rootJson.optJSONArray("room_status_list")
-
-                    if (roomNameArray != null && roomStatusArray != null) {
-                        for (i in 0 until roomNameArray.length()) {
-                            roomNames.add(roomNameArray.optString(i, "未知房间"))
-                            roomStatuses.add(roomStatusArray.optBoolean(i, false))
+                    val json = JSONObject(responseBody)
+                    Handler(Looper.getMainLooper()).post {
+                        if (json.has("code") && json.getInt("code") == 900) {
+                            resetLocalData()
+                        } else {
+                            val names = json.getJSONArray("room_name_list")
+                            val statuses = json.getJSONArray("room_status_list")
+                            roomNames.clear()
+                            roomStatuses.clear()
+                            for (i in 0 until names.length()) {
+                                roomNames.add(names.getString(i))
+                                roomStatuses.add(statuses.getBoolean(i))
+                            }
                         }
+                        callback.onSuccess()
                     }
-                    callback.onSuccess()
-                } catch (e: JSONException) {
+                } catch (e: Exception) {
+                    e.printStackTrace()
                     callback.onFailure()
                 }
             }

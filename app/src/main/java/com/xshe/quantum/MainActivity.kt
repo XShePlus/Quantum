@@ -312,6 +312,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
             currentPlayingTrack = ""
         }
     }
+
     // 核心轮询同步逻辑
     LaunchedEffect(values.roomName, savedHost, musicService) {
         val player = musicService?.mediaPlayer ?: return@LaunchedEffect
@@ -324,49 +325,43 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
                             if (System.currentTimeMillis() - lastManualActionTime < 3000) return
-                            val json = JSONObject(responseBody)
-                            val sPause = json.optBoolean("is_music_pause", true)
-                            val sTime = json.optInt("current_music_time", 0)
-                            val sMusic = json.optString("current_music", "")
 
-                            // 同步曲目
-                            if (sMusic.isNotBlank() && sMusic != currentPlayingTrack) {
-                                currentPlayingTrack = sMusic
-                                val playUrl = InternetHelper().getStreamUrl(
-                                    savedHost,
-                                    values.roomName,
-                                    sMusic
-                                )
-                                player.reset()
-                                player.setDataSource(playUrl)
-                                player.prepareAsync()
-                                player.setOnPreparedListener {
-                                    it.seekTo(sTime * 1000)
-                                    if (!sPause) it.start()
-                                    globalIsPlaying = !sPause
-                                }
-                            } else if (sMusic.isNotBlank()) {
-                                if (!sPause != globalIsPlaying) {
-                                    if (sPause) player.pause() else player.start()
-                                    globalIsPlaying = !sPause
-                                }
-                                val localSec = player.currentPosition / 1000
-                                if (sPause) {
-                                    // 若服务端已暂停
-                                    if (Math.abs(localSec - sTime) > 2) {
-                                        player.seekTo(sTime * 1000)
+                            try {
+                                val json = JSONObject(responseBody)
+                                val sPause = json.optBoolean("is_music_pause", true)
+                                val sTime = json.optInt("current_music_time", 0)
+                                val sMusic = json.optString("current_music", "")
+
+                                if (sMusic.isNotBlank() && sMusic != currentPlayingTrack) {
+                                    currentPlayingTrack = sMusic
+                                    val playUrl = InternetHelper().getStreamUrl(savedHost, values.roomName, sMusic)
+                                    player.reset()
+                                    player.setDataSource(playUrl)
+                                    player.prepareAsync()
+                                    player.setOnPreparedListener {
+                                        it.seekTo(sTime * 1000)
+                                        if (!sPause) it.start()
+                                        globalIsPlaying = !sPause
                                     }
-                                } else {
-                                    // 若服务端在播，只有当本地进度落后超过 3 秒才追赶
-                                    // 如果本地进度比服务端快，则跳过覆盖，等待本地主动同步
-                                    if (sTime > localSec + 3) {
-                                        player.seekTo(sTime * 1000)
+                                } else if (sMusic.isNotBlank()) {
+                                    if (!sPause != globalIsPlaying) {
+                                        if (sPause) player.pause() else player.start()
+                                        globalIsPlaying = !sPause
+                                    }
+                                    val localSec = player.currentPosition / 1000
+                                    if (sPause) {
+                                        if (Math.abs(localSec - sTime) > 2) player.seekTo(sTime * 1000)
+                                    } else {
+                                        if (sTime > localSec + 3) player.seekTo(sTime * 1000)
                                     }
                                 }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                             }
                         }
 
-                        override fun onFailure() {}
+                        override fun onFailure() {
+                        }
                     })
             }
             delay(1000) // 1秒轮询一次

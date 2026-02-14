@@ -167,26 +167,47 @@ class InternetHelper {
     fun getMessages(
         hostName: String,
         roomName: String,
-        userName: String, // 新增
+        userName: String,
         callback: RequestCallback
     ) {
         val client = okHttpClient
         val url = formatUrl(hostName)
         val json = JSONObject().apply {
             put("room_name", roomName)
-            put("user_name", userName) // 新增
+            put("user_name", userName)
         }
         val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
         val request = Request.Builder().url("$url/api/get_message").post(body).build()
-        thread {
-            try {
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string() ?: ""
-                if (response.isSuccessful) callback.onSuccess(body) else callback.onFailure()
-            } catch (e: Exception) {
-                callback.onFailure()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                callback.onSuccess(response.body?.string() ?: "")
             }
-        }
+        })
+    }
+
+    fun verifyConnect(hostName: String, callback: RequestCallback) {
+        val client = okHttpClient
+        val url = formatUrl(hostName)
+        val request = Request.Builder().url("$url/api/connect").post("".toRequestBody()).build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    try {
+                        JSONObject(body)
+                        callback.onSuccess(body)
+                    } catch (e: Exception) {
+                        callback.onFailure()
+                    }
+                } else {
+                    callback.onFailure()
+                }
+            }
+        })
     }
 
     fun appendMessage(
@@ -271,19 +292,26 @@ class InternetHelper {
         userName: String,
         callback: RequestCallback
     ) {
-        val client = okHttpClient
-        val url = formatUrl(hostName)
         val json = JSONObject().apply {
             put("room_name", roomName)
-            put("user_name", userName) 
+            put("user_name", userName)
         }
         val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-        val request = Request.Builder().url("$url/api/get_music_status").post(body).build()
+        val fullUrl = try { "${formatUrl(hostName)}/api/get_music_status" } catch(e:Exception){ "" }
+        if(fullUrl.isEmpty()) { callback.onFailure(); return }
 
-        client.newCall(request).enqueue(object : Callback {
+        val request = Request.Builder().url(fullUrl).post(body).build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = callback.onFailure()
             override fun onResponse(call: Call, response: Response) {
-                callback.onSuccess(response.body?.string() ?: "")
+                val resBody = response.body?.string() ?: ""
+                // 关键修正：只有 200 OK 且内容不为空才算成功
+                if (response.isSuccessful && resBody.isNotBlank()) {
+                    callback.onSuccess(resBody)
+                } else {
+                    callback.onFailure()
+                }
             }
         })
     }
@@ -293,37 +321,29 @@ class InternetHelper {
         roomName: String,
         callback: PAMCallback
     ) {
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
-        val json = JSONObject().apply {
-            put("room_name", roomName)
-        }
-        val body =
-            json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-
-        val request = Request.Builder()
-            .url("$url/api/get_numbers")
-            .post(body)
-            .build()
+        val url = formatUrl(hostName)
+        val json = JSONObject().apply { put("room_name", roomName) }
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val request = Request.Builder().url("$url/api/get_numbers").post(body).build()
 
         okHttpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback.onFailure()
-            }
+            override fun onFailure(call: Call, e: IOException) { callback.onFailure() }
 
             override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val bodyString = it.body?.string() ?: ""
-                        val json = JSONObject(bodyString)
-                        val p = json.optInt("present_number")
-                        val m = json.optInt("max_number")
-
-                        // 切回主线程更新 UI
+                val bodyString = response.body?.string() ?: ""
+                if (response.isSuccessful && bodyString.isNotBlank()) {
+                    try {
+                        val jsonObj = JSONObject(bodyString)
+                        val p = jsonObj.optInt("present_number")
+                        val m = jsonObj.optInt("max_number")
                         Handler(Looper.getMainLooper()).post {
-                            callback.onSuccess(p = p, m = m)
+                            callback.onSuccess(p, m)
                         }
+                    } catch (e: Exception) {
+                        callback.onFailure()
                     }
-
+                } else {
+                    callback.onFailure()
                 }
             }
         })
