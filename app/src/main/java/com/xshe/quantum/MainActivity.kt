@@ -1,5 +1,7 @@
 package com.xshe.quantum
 
+import android.Manifest
+import android.R.attr.contentDescription
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -7,12 +9,15 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -127,17 +132,36 @@ import org.json.JSONArray
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -151,7 +175,7 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         ActivityCompat.requestPermissions(
                             this,
-                            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                             101
                         )
                     }
@@ -249,9 +273,14 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     var currentPlayingTrack by remember { mutableStateOf("") }
     var roomNumbers by remember { mutableStateOf(Values.RoomNumbers()) }
     val mContext = LocalContext.current
-    var lastManualActionTime by remember { mutableLongStateOf(0L) }
     var musicService by remember { mutableStateOf<MusicService?>(null) }
-    val mediaPlayer = musicService?.mediaPlayer // Service的播放器
+    val mediaPlayer = musicService?.mediaPlayer
+    var uiExampleMode by remember { mutableStateOf(false) }
+    var serverExampleMode by remember { mutableStateOf(false) }
+    var lastManualActionTime by remember { mutableLongStateOf(0L) }
+    val MANUAL_COOLDOWN = 3000L
+    var updateVersionName by remember { mutableStateOf("") }
+    var updateUrl by remember { mutableStateOf("") }
 
     values.historyHost = setting.getString("history_host", "暂无历史连接主机").toString()
 
@@ -300,6 +329,42 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        InternetHelper().getServerVersion("https://quantum.xshenas.icu:61320", object : InternetHelper.RequestCallback {
+            override fun onSuccess(responseBody: String) {
+                try {
+                    val json = JSONObject(responseBody)
+                    val serverCode = json.optInt("versionCode", 0)
+                    val serverName = json.optString("versionName", "")
+                    val url = json.optString("updateURL", "")
+                    // 获取本地 versionCode
+                    val localCode = mContext.packageManager
+                        .getPackageInfo(mContext.packageName, 0)
+                        .let {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                                it.longVersionCode.toInt()
+                            else
+                                @Suppress("DEPRECATION") it.versionCode
+                        }
+                    if (serverCode > localCode && serverName.isNotBlank() && url.isNotBlank()) {
+                        Handler(Looper.getMainLooper()).post {
+                            updateVersionName = serverName
+                            updateUrl = url
+                        }
+                    } else {
+                        Handler(Looper.getMainLooper()).post {
+                            updateVersionName = ""
+                            updateUrl = ""
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            override fun onFailure() {}
+        })
+    }
+
     LaunchedEffect(values.roomName) {
         if (values.roomName.isNullOrEmpty() || values.roomName == "null") {
             musicService?.mediaPlayer?.let { player ->
@@ -313,61 +378,95 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         }
     }
 
-    // 核心轮询同步逻辑
+    fun applyMusicStatus(json: JSONObject, player: MediaPlayer) {
+        if (System.currentTimeMillis() - lastManualActionTime < MANUAL_COOLDOWN) return
+
+        val sPause = json.optBoolean("is_music_pause", true)
+        val sTime = json.optInt("current_music_time", 0)
+        val sMusic = json.optString("current_music", "")
+        val sExampleMode = json.optBoolean("is_playing_example", false)
+
+        serverExampleMode = sExampleMode
+
+        if (sMusic.isNotBlank() && sMusic != currentPlayingTrack) {
+            // 强制切歌
+            currentPlayingTrack = sMusic
+            val playUrl = if (sExampleMode) {
+                InternetHelper().getExampleStreamUrl(savedHost, sMusic)
+            } else {
+                InternetHelper().getStreamUrl(savedHost, values.roomName, sMusic)
+            }
+            player.reset()
+            player.setDataSource(playUrl)
+            player.prepareAsync()
+            player.setOnPreparedListener { mp ->
+                mp.seekTo(sTime * 1000)
+                if (!sPause) mp.start()
+                globalIsPlaying = !sPause
+            }
+        } else if (sMusic.isNotBlank()) {
+            // 同步暂停/播放
+            if (!sPause != globalIsPlaying) {
+                if (sPause) player.pause() else player.start()
+                globalIsPlaying = !sPause
+            }
+            // 同步进度
+            val localSec = player.currentPosition / 1000
+            if (sPause) {
+                if (Math.abs(localSec - sTime) > 2) player.seekTo(sTime * 1000)
+            } else {
+                if (sTime > localSec + 3) player.seekTo(sTime * 1000)
+            }
+        }
+    }
+
+    LaunchedEffect(values.roomName, musicService) {
+        if (savedHost.isNotBlank() && !values.roomName.isNullOrEmpty() && musicService != null) {
+            val player = musicService!!.mediaPlayer ?: return@LaunchedEffect
+            InternetHelper().getMusicStatus(
+                savedHost, values.roomName, tools.userName,
+                object : InternetHelper.RequestCallback {
+                    override fun onSuccess(responseBody: String) {
+                        try {
+                            val json = JSONObject(responseBody)
+                            Handler(Looper.getMainLooper()).post {
+                                applyMusicStatus(json, player)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    override fun onFailure() {}
+                })
+        }
+    }
+
     LaunchedEffect(values.roomName, savedHost, musicService) {
         val player = musicService?.mediaPlayer ?: return@LaunchedEffect
         while (true) {
             if (savedHost.isNotBlank() && !values.roomName.isNullOrEmpty()) {
                 InternetHelper().getMusicStatus(
-                    savedHost,
-                    values.roomName,
-                    tools.userName,
+                    savedHost, values.roomName, tools.userName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
-                            if (System.currentTimeMillis() - lastManualActionTime < 3000) return
-
+                            // 可暂时移除 lastManualActionTime 判断，或确保它在手动操作时更新
                             try {
                                 val json = JSONObject(responseBody)
-                                val sPause = json.optBoolean("is_music_pause", true)
-                                val sTime = json.optInt("current_music_time", 0)
-                                val sMusic = json.optString("current_music", "")
-
-                                if (sMusic.isNotBlank() && sMusic != currentPlayingTrack) {
-                                    currentPlayingTrack = sMusic
-                                    val playUrl = InternetHelper().getStreamUrl(savedHost, values.roomName, sMusic)
-                                    player.reset()
-                                    player.setDataSource(playUrl)
-                                    player.prepareAsync()
-                                    player.setOnPreparedListener {
-                                        it.seekTo(sTime * 1000)
-                                        if (!sPause) it.start()
-                                        globalIsPlaying = !sPause
-                                    }
-                                } else if (sMusic.isNotBlank()) {
-                                    if (!sPause != globalIsPlaying) {
-                                        if (sPause) player.pause() else player.start()
-                                        globalIsPlaying = !sPause
-                                    }
-                                    val localSec = player.currentPosition / 1000
-                                    if (sPause) {
-                                        if (Math.abs(localSec - sTime) > 2) player.seekTo(sTime * 1000)
-                                    } else {
-                                        if (sTime > localSec + 3) player.seekTo(sTime * 1000)
-                                    }
+                                Handler(Looper.getMainLooper()).post {
+                                    applyMusicStatus(json, player)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
                         }
 
-                        override fun onFailure() {
-                        }
+                        override fun onFailure() {}
                     })
             }
-            delay(1000) // 1秒轮询一次
+            delay(1000)
         }
     }
-
 
 
     Scaffold(
@@ -427,15 +526,37 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp
             ) {
-                //📍
-                Text(
-                    text = if (i == 0) "👋 Hi, ${tools.userName}" else {
-                        if (values.roomName.isNullOrEmpty()) "null" else "\uD83D\uDCCD ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
-                    },
+                Row(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (i == 0) "👋 Hi, ${tools.userName}" else {
+                            if (values.roomName.isNullOrEmpty()) "null"
+                            else "\uD83D\uDED6 ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
+                        },
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    )
+
+                    if (updateVersionName.isNotBlank() && updateUrl.isNotBlank()) {
+                        Text(
+                            text = "新版本($updateVersionName)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
+                                .clickable {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl))
+                                    mContext.startActivity(intent)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
             }
 
             key(savedHost) {
@@ -466,10 +587,17 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                             setting
                         )
 
-                        2 -> MusicView(
+                        2 ->  MusicView(
                             savedHost, values.roomName, tools, mediaPlayer,
-                            globalIsPlaying, currentPlayingTrack
-                        ) { globalIsPlaying = it }
+                            globalIsPlaying, currentPlayingTrack,
+                            uiExampleMode = uiExampleMode,
+                            serverExampleMode = serverExampleMode,
+                            userName = tools.userName,
+                            onUiModeChange = { newMode -> uiExampleMode = newMode },
+                            onPlayingStateChange = { globalIsPlaying = it },
+                            onCurrentTrackChange = { newTrack -> currentPlayingTrack = newTrack },
+                            onManualAction = { lastManualActionTime = System.currentTimeMillis() }
+                        )
                     }
                 }
             }
@@ -983,6 +1111,7 @@ fun ChatView(
 
     // 轮询刷新消息列表
     LaunchedEffect(values.roomName) {
+        values.messageList.clear()
         while (true) {
             if (host.isNotBlank() && values.roomName.isNotBlank()) {
                 InternetHelper().getMessages(
@@ -1130,8 +1259,14 @@ fun MusicView(
     mediaPlayer: MediaPlayer?,
     isPlaying: Boolean,
     currentPlayingTrack: String,
-    onPlayingStateChange: (Boolean) -> Unit
-) {
+    uiExampleMode: Boolean,
+    serverExampleMode: Boolean,
+    userName: String,
+    onUiModeChange: (Boolean) -> Unit,
+    onPlayingStateChange: (Boolean) -> Unit,
+    onCurrentTrackChange: (String) -> Unit,
+    onManualAction: () -> Unit
+){
     if (mediaPlayer == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("正在连接播放服务...")
@@ -1139,17 +1274,124 @@ fun MusicView(
         return
     }
 
-    val mcontext = LocalContext.current
-    val musicList = remember { mutableStateListOf<String>() }
+    val exampleMusicList = remember { mutableStateListOf<String>() }
+    var currentPage by remember { mutableIntStateOf(1) }
+    var hasMore by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+    val roomMusicList = remember { mutableStateListOf<String>() }
+    val mContext = LocalContext.current
     var currentPos by remember { mutableFloatStateOf(0f) }
     val duration = if (mediaPlayer.duration > 0) mediaPlayer.duration.toFloat() else 1f
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    val searchResultList = remember { mutableStateListOf<String>() }
+    var searchPage by remember { mutableIntStateOf(1) }
+    var searchHasMore by remember { mutableStateOf(false) }
+    var searchIsLoading by remember { mutableStateOf(false) }
 
-    val playTrack = playTrack@{ fileName: String ->
+    val currentDisplayList = when {
+        uiExampleMode && searchQuery.isNotBlank() -> searchResultList
+        uiExampleMode -> exampleMusicList
+        else -> roomMusicList
+    }
+
+    LaunchedEffect(uiExampleMode, currentPage) {
+        if (uiExampleMode && currentPage > 1 && hasMore && !isLoading) {
+            isLoading = true
+            loadError = false
+            try {
+                val (songs, total) = tools.fetchExampleMusicListSuspend(hostName, currentPage, 20)
+                val newSongs = songs.filter { it !in exampleMusicList }
+                exampleMusicList.addAll(newSongs)
+                hasMore = exampleMusicList.size < total
+            } catch (e: Exception) {
+                loadError = true
+                currentPage--
+                hasMore = true
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+
+    LaunchedEffect(searchQuery, uiExampleMode) {
+        if (!uiExampleMode) return@LaunchedEffect
+        delay(500)
+
+        searchResultList.clear()
+        searchPage = 1
+        searchHasMore = false
+
+        if (searchQuery.isBlank()) {
+            isSearching = false
+            return@LaunchedEffect
+        }
+
+        isSearching = true
+        searchIsLoading = true
+        try {
+            val (songs, total) = tools.searchExampleMusicSuspend(hostName, searchQuery, 1, 20)
+            searchResultList.addAll(songs)
+            searchHasMore = searchResultList.size < total
+        } catch (e: Exception) {
+            // 静默处理
+        } finally {
+            searchIsLoading = false
+        }
+    }
+
+
+    LaunchedEffect(searchPage) {
+        if (searchPage <= 1 || !searchHasMore || searchIsLoading || searchQuery.isBlank()) return@LaunchedEffect
+        searchIsLoading = true
+        try {
+            val (songs, total) = tools.searchExampleMusicSuspend(hostName, searchQuery, searchPage, 20)
+            val newSongs = songs.filter { it !in searchResultList }
+            searchResultList.addAll(newSongs)
+            searchHasMore = searchResultList.size < total
+        } catch (e: Exception) {
+            searchPage--
+            searchHasMore = true
+        } finally {
+            searchIsLoading = false
+        }
+    }
+
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex == null) return@collect
+
+                if (uiExampleMode && searchQuery.isNotBlank()) {
+                    if (!searchIsLoading && searchHasMore && lastVisibleIndex >= searchResultList.size - 1) {
+                        searchPage++
+                    }
+                } else if (uiExampleMode && searchQuery.isBlank()) {
+                    if (!isLoading && hasMore && lastVisibleIndex >= exampleMusicList.size - 1) {
+                        currentPage++
+                    }
+                }
+            }
+    }
+
+
+    // 播放函数
+    val playTrack: (String) -> Unit = playTrack@{ fileName ->
         if (fileName.isBlank()) return@playTrack
-        val playUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
+        onCurrentTrackChange(fileName)
+        onManualAction()
+        val playUrl = if (uiExampleMode) {
+            InternetHelper().getExampleStreamUrl(hostName, fileName)
+        } else {
+            InternetHelper().getStreamUrl(hostName, roomName, fileName)
+        }
+
         mediaPlayer.apply {
             try {
                 stop()
@@ -1159,18 +1401,16 @@ fun MusicView(
                 setOnPreparedListener { mp ->
                     mp.start()
                     onPlayingStateChange(true)
-                    // 更新服务器状态
+                    // 上报时使用 uiExampleMode
                     InternetHelper().updateMusicStatus(
-                        hostName, roomName, false, 0, fileName,
-                        object : InternetHelper.RoomRequestCallback {
+                        hostName, roomName, userName, false, 0, fileName, uiExampleMode,
+                        updateTime = System.currentTimeMillis(),object : InternetHelper.RoomRequestCallback {
                             override fun onSuccess() {}
-                            override fun onFailure() {}
+                            override fun onFailure() {
+                                tools.showToast(mContext, "状态同步失败")
+                            }
                         }
                     )
-                }
-                setOnErrorListener { _, what, extra ->
-                    onPlayingStateChange(false)
-                    true
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1179,90 +1419,113 @@ fun MusicView(
     }
 
     // 文件上传
-    val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty()) {
-                isUploading = true
-                uris.forEach { uri ->
-                    tools.uploadMusicFile(
-                        mcontext,
-                        hostName,
-                        roomName,
-                        uri,
-                        object : Tools.gacCallback {
-                            override fun onSuccess() {
-                                tools.fetchMusicList(hostName, roomName) { list ->
-                                    musicList.clear()
-                                    musicList.addAll(list)
-                                    isUploading = false
-                                }
-                            }
-
-                            override fun onFailure() {
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            isUploading = true
+            uris.forEach { uri ->
+                tools.uploadMusicFile(
+                    mContext,
+                    hostName,
+                    roomName,
+                    uri,
+                    object : Tools.gacCallback {
+                        override fun onSuccess() {
+                            // 刷新房间音乐列表
+                            tools.fetchMusicList(hostName, roomName) { list ->
+                                roomMusicList.clear()
+                                roomMusicList.addAll(list)
                                 isUploading = false
-                                tools.showToast(mcontext, "上传失败")
                             }
                         }
-                    )
-                }
+
+                        override fun onFailure() {
+                            // 切到主线程修改 isUploading 和弹窗
+                            Handler(Looper.getMainLooper()).post {
+                                isUploading = false
+                                tools.showToast(mContext, "上传失败")
+                            }
+                        }
+                    }
+                )
             }
         }
+    }
 
     if (isUploading) {
         LoadingDialog()
     }
 
     // 获取列表
-    LaunchedEffect(roomName) {
-        if (roomName != "null") {
-            tools.fetchMusicList(hostName, roomName) { list ->
-                musicList.clear()
-                musicList.addAll(list)
-
-                scope.launch(Dispatchers.IO) {
-                    list.forEach { fileName ->
-                        val url = InternetHelper().getStreamUrl(hostName, roomName, fileName)
-                        if (Tools.ImageCache.get(url) == null) {
-                            tools.getAudioAlbumArt(url)?.let {
-                                Tools.ImageCache.put(url, it)
-                            }
-                        }
-                    }
+    LaunchedEffect(roomName, uiExampleMode) {
+        searchQuery = ""
+        isSearching = false
+        searchResultList.clear()
+        if (uiExampleMode) {
+            currentPage = 1
+            hasMore = true
+            exampleMusicList.clear()
+            loadError = false
+            isLoading = true
+            try {
+                val (songs, total) = tools.fetchExampleMusicListSuspend(hostName, 1, 20)
+                exampleMusicList.addAll(songs)
+                hasMore = exampleMusicList.size < total
+            } catch (e: Exception) {
+                loadError = true
+                hasMore = true
+            } finally {
+                isLoading = false
+            }
+        } else {
+            if (roomName != "null") {
+                tools.fetchMusicList(hostName, roomName) { list ->
+                    roomMusicList.clear()
+                    roomMusicList.addAll(list)
                 }
             }
         }
     }
 
+    // 更新进度条
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPos = mediaPlayer.currentPosition.toFloat()
-            delay(1000) // 每1秒更新一次UI
+            delay(1000)
         }
     }
+
+    // 自动下一首
     LaunchedEffect(mediaPlayer) {
         mediaPlayer.setOnCompletionListener {
             mainHandler.post {
-                val currentIndex = musicList.indexOf(currentPlayingTrack)
-                if (currentIndex != -1 && currentIndex < musicList.size - 1) {
-                    // 自动下一首
-                    val nextTrack = musicList[currentIndex + 1]
+                val activeList = when {
+                    uiExampleMode && searchQuery.isNotBlank() -> searchResultList
+                    uiExampleMode -> exampleMusicList
+                    else -> roomMusicList
+                }
+                val currentIndex = activeList.indexOf(currentPlayingTrack)
+                if (currentIndex != -1 && currentIndex < activeList.size - 1) {
+                    val nextTrack = activeList[currentIndex + 1]
                     playTrack(nextTrack)
                 } else {
-                    // 列表结束，重置状态
                     onPlayingStateChange(false)
                 }
             }
         }
     }
-    // 本地进度快时上传至服务端
+
+    // 每5秒同步进度到服务器
     LaunchedEffect(isPlaying, currentPlayingTrack) {
         while (isPlaying) {
-            delay(5000) // 每5秒同步一次
+            delay(5000)
             val localTime = mediaPlayer.currentPosition / 1000
             if (localTime > 0 && currentPlayingTrack.isNotBlank()) {
                 InternetHelper().updateMusicStatus(
-                    hostName, roomName, false, localTime, currentPlayingTrack,
-                    object : InternetHelper.RoomRequestCallback {
+                    hostName, roomName, userName, false, localTime, currentPlayingTrack, uiExampleMode,
+                    updateTime = System.currentTimeMillis() - 10_000L,
+                    callback = object : InternetHelper.RoomRequestCallback {
                         override fun onSuccess() {}
                         override fun onFailure() {}
                     }
@@ -1271,8 +1534,96 @@ fun MusicView(
         }
     }
 
-
     Column(modifier = Modifier.fillMaxSize()) {
+        // 顶部开关
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp, end = 16.dp)
+                    .combinedClickable(
+                        onClick = { onUiModeChange(!uiExampleMode) },
+                        indication = ripple(),
+                        interactionSource = remember { MutableInteractionSource() }
+                    ),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = "模板音乐库",
+                    modifier = Modifier.padding(end = 16.dp)
+                )
+                Switch(
+                    checked = uiExampleMode,
+                    onCheckedChange = null,
+                    modifier = Modifier.scale(1.1f),
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                )
+            }
+        }
+        if (uiExampleMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("搜索模板歌曲...") },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(24.dp),
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "清除",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                )
+            }
+
+            // 搜索结果为空时的提示
+            if (isSearching && searchResultList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "未找到「$searchQuery」相关歌曲",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
         // 音乐列表
         LazyColumn(
             modifier = Modifier
@@ -1281,11 +1632,22 @@ fun MusicView(
             contentPadding = PaddingValues(16.dp)
         ) {
             items(
-                items = musicList,
+                items = currentDisplayList,
                 key = { it }
             ) { fileName ->
+                val trackUrl = if (uiExampleMode) {
+                    InternetHelper().getExampleStreamUrl(hostName, fileName)
+                } else {
+                    InternetHelper().getStreamUrl(hostName, roomName, fileName)
+                }
+                val coverUrl = if (uiExampleMode) {
+                    InternetHelper().getExampleCoverUrl(hostName, fileName)  // 新增
+                } else {
+                    InternetHelper().getRoomCoverUrl(hostName, roomName, fileName)
+                }
                 MusicItem(
                     fileName = fileName,
+                    trackUrl = trackUrl,
                     hostName = hostName,
                     roomName = roomName,
                     tools = tools,
@@ -1294,8 +1656,40 @@ fun MusicView(
                     onPlayClick = { playTrack(fileName) }
                 )
             }
+            if (uiExampleMode && searchQuery.isNotBlank() && searchHasMore) {
+                item(key = "search_load_more") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (searchIsLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        } else {
+                            TextButton(onClick = { if (!searchIsLoading) searchPage++ }) {
+                                Text("加载更多")
+                            }
+                        }
+                    }
+                }
+            } else if (uiExampleMode && searchQuery.isBlank() && hasMore) {
+                item(key = "load_more") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        } else {
+                            TextButton(onClick = { if (!isLoading && hasMore) currentPage++ }) {
+                                Text("加载更多")
+                            }
+                        }
+                    }
+                }
+            }
         }
-        // 底部控制区
+
+        // 底部控制区（保持原样，但上传按钮条件改为 !isExampleMode）
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1308,44 +1702,43 @@ fun MusicView(
                     .padding(horizontal = 20.dp)
                     .padding(top = 12.dp, bottom = 28.dp)
             ) {
-                //上传按钮
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = {
-                            launcher.launch(
-                                arrayOf(
-                                    "audio/mpeg",
-                                    "audio/flac",
-                                    "audio/aac"
-                                )
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                // 上传按钮（仅房间模式显示）
+                if (!uiExampleMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("上传音乐", style = MaterialTheme.typography.labelLarge)
+                        TextButton(
+                            onClick = {
+                                launcher.launch(
+                                    arrayOf(
+                                        "audio/mpeg",
+                                        "audio/flac",
+                                        "audio/aac"
+                                    )
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("上传音乐", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
 
-                //进度条
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Slider(
                         value = currentPos,
                         onValueChange = { currentPos = it },
                         onValueChangeFinished = {
+                            onManualAction()
                             mediaPlayer.seekTo(currentPos.toInt())
                             InternetHelper().updateMusicStatus(
-                                hostName, roomName, !isPlaying, (currentPos / 1000).toInt(),
-                                currentPlayingTrack,
-                                object : InternetHelper.RoomRequestCallback {
+                                hostName, roomName, userName, !isPlaying, (currentPos / 1000).toInt(),
+                                currentPlayingTrack, uiExampleMode,
+                                updateTime = System.currentTimeMillis(),
+                                callback = object : InternetHelper.RoomRequestCallback {
                                     override fun onSuccess() {}
                                     override fun onFailure() {}
                                 }
@@ -1378,12 +1771,11 @@ fun MusicView(
 
                 Spacer(Modifier.height(12.dp))
 
-                //歌曲信息 + 播放按钮
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    //歌曲名
+                    // 歌曲名
                     Row(
                         modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically
@@ -1403,18 +1795,17 @@ fun MusicView(
                         }
                     }
 
-                    //控制按钮
+                    // 控制按钮
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 上一首
                         IconButton(
                             onClick = {
-                                val currentIndex = musicList.indexOf(currentPlayingTrack)
-                                if (currentIndex > 0) playTrack(musicList[currentIndex - 1])
+                                val currentIndex = currentDisplayList.indexOf(currentPlayingTrack)
+                                if (currentIndex > 0) playTrack(currentDisplayList[currentIndex - 1])
                             },
-                            enabled = musicList.indexOf(currentPlayingTrack) > 0
+                            enabled = currentDisplayList.indexOf(currentPlayingTrack) > 0
                         ) {
                             Icon(
                                 Icons.Default.SkipPrevious,
@@ -1423,22 +1814,18 @@ fun MusicView(
                             )
                         }
 
-                        // 播放/暂停
                         Surface(
                             onClick = {
                                 if (currentPlayingTrack.isBlank()) return@Surface
+                                onManualAction()
                                 val nextPauseState = isPlaying
-                                if (isPlaying) {
-                                    mediaPlayer.pause()
-                                    onPlayingStateChange(false)
-                                } else {
-                                    mediaPlayer.start()
-                                    onPlayingStateChange(true)
-                                }
+                                if (isPlaying) { mediaPlayer.pause(); onPlayingStateChange(false) }
+                                else { mediaPlayer.start(); onPlayingStateChange(true) }
                                 InternetHelper().updateMusicStatus(
-                                    hostName, roomName, nextPauseState,
-                                    (mediaPlayer.currentPosition / 1000), currentPlayingTrack,
-                                    object : InternetHelper.RoomRequestCallback {
+                                    hostName, roomName, userName, nextPauseState,
+                                    (mediaPlayer.currentPosition / 1000), currentPlayingTrack, uiExampleMode,
+                                    updateTime = System.currentTimeMillis(),
+                                    callback = object : InternetHelper.RoomRequestCallback {
                                         override fun onSuccess() {}
                                         override fun onFailure() {}
                                     }
@@ -1458,15 +1845,14 @@ fun MusicView(
                             }
                         }
 
-                        // 下一首
                         IconButton(
                             onClick = {
-                                val currentIndex = musicList.indexOf(currentPlayingTrack)
-                                if (currentIndex != -1 && currentIndex < musicList.size - 1) {
-                                    playTrack(musicList[currentIndex + 1])
+                                val currentIndex = currentDisplayList.indexOf(currentPlayingTrack)
+                                if (currentIndex != -1 && currentIndex < currentDisplayList.size - 1) {
+                                    playTrack(currentDisplayList[currentIndex + 1])
                                 }
                             },
-                            enabled = musicList.indexOf(currentPlayingTrack) < musicList.size - 1
+                            enabled = currentDisplayList.indexOf(currentPlayingTrack) < currentDisplayList.size - 1
                         ) {
                             Icon(Icons.Default.SkipNext, "下一首", modifier = Modifier.size(30.dp))
                         }
@@ -1480,6 +1866,7 @@ fun MusicView(
 @Composable
 fun MusicItem(
     fileName: String,
+    trackUrl: String,
     hostName: String,
     roomName: String,
     tools: Tools,
@@ -1487,18 +1874,60 @@ fun MusicItem(
     isPlaying: Boolean,
     onPlayClick: () -> Unit
 ) {
-    val trackUrl = InternetHelper().getStreamUrl(hostName, roomName, fileName)
-    // 优先尝试从内存缓存中获取
-    var albumArt by remember(fileName) { mutableStateOf(Tools.ImageCache.get(trackUrl)) }
+    fun String.md5(): String {
+        val md = MessageDigest.getInstance("MD5")
+        val digest = md.digest(toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
+    }
 
-    //异步解析封面，避免阻塞主线程
+    val context = LocalContext.current
+    var albumArt by remember(trackUrl) { mutableStateOf(Tools.ImageCache.get(trackUrl)) }
+    var isLoading by remember { mutableStateOf(false) }
+    var loadFailed by remember { mutableStateOf(false) }
+
     LaunchedEffect(trackUrl) {
-        if (albumArt == null) {
-            val bitmap = tools.getAudioAlbumArt(trackUrl) // Tools中已使用 Dispatchers.IO
-            if (bitmap != null) {
-                Tools.ImageCache.put(trackUrl, bitmap)
-                albumArt = bitmap
+        if (albumArt == null && !isLoading && !loadFailed) {
+            isLoading = true
+
+            // 1. 尝试从磁盘缓存加载
+            val diskBitmap = withContext(Dispatchers.IO) {
+                val cacheFile = File(context.cacheDir, "covers/${trackUrl.md5()}.jpg")
+                if (cacheFile.exists()) {
+                    BitmapFactory.decodeFile(cacheFile.absolutePath)
+                } else null
             }
+            if (diskBitmap != null) {
+                Tools.ImageCache.put(trackUrl, diskBitmap)
+                albumArt = diskBitmap
+                isLoading = false
+                return@LaunchedEffect
+            }
+
+            // 2. 从网络加载
+            val bitmap = withContext(Dispatchers.IO) {
+                try {
+                    tools.getAudioAlbumArt(trackUrl)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (bitmap != null) {
+                // 存入内存缓存
+                Tools.ImageCache.put(trackUrl, bitmap)
+                // 存入磁盘缓存
+                withContext(Dispatchers.IO) {
+                    val cacheDir = File(context.cacheDir, "covers")
+                    cacheDir.mkdirs()
+                    val cacheFile = File(cacheDir, "${trackUrl.md5()}.jpg")
+                    FileOutputStream(cacheFile).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                    }
+                }
+                albumArt = bitmap
+            } else {
+                loadFailed = true
+            }
+            isLoading = false
         }
     }
 
@@ -1523,19 +1952,29 @@ fun MusicItem(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            if (albumArt != null) {
-                Image(
-                    bitmap = albumArt!!.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = if (isThisTrack && isPlaying) Icons.Default.MusicNote else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = if (isThisTrack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                )
+            when {
+                albumArt != null -> {
+                    Image(
+                        bitmap = albumArt!!.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                isLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                else -> {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
 
@@ -1562,7 +2001,7 @@ fun MusicItem(
 fun LoadingDialog() {
     Dialog(
         onDismissRequest = { },
-        properties = androidx.compose.ui.window.DialogProperties(
+        properties = DialogProperties(
             dismissOnBackPress = false,
             dismissOnClickOutside = false
         )
@@ -1577,7 +2016,7 @@ fun LoadingDialog() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                androidx.compose.material3.CircularProgressIndicator(
+                CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(16.dp))

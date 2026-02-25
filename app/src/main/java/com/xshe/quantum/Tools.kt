@@ -10,12 +10,20 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import kotlin.coroutines.resume
 
 class Tools {
     interface gacCallback {
@@ -31,6 +39,7 @@ class Tools {
     val roomNames = mutableListOf<String>()
     val roomStatuses = mutableListOf<Boolean>()
     var userName=""
+    var isPlayingExample = false
     fun showToast(context: Context, msg: String) {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -78,6 +87,32 @@ class Tools {
             })
     }
 
+
+    suspend fun searchExampleMusicSuspend(hostName: String, keyword: String, page: Int, pageSize: Int): Pair<List<String>, Int> {
+        return withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine { cont ->
+                InternetHelper().searchExampleSongs(hostName, keyword, page, pageSize,
+                    object : InternetHelper.RequestCallback {
+                        override fun onSuccess(responseBody: String) {
+                            try {
+                                val json = JSONObject(responseBody)
+                                val arr = json.getJSONArray("songs")
+                                val total = json.optInt("total", 0)
+                                val list = (0 until arr.length()).map { arr.getString(it) }
+                                cont.resume(Pair(list, total))
+                            } catch (e: Exception) {
+                                cont.resume(Pair(emptyList(), 0))
+                            }
+                        }
+                        override fun onFailure() {
+                            cont.resume(Pair(emptyList(), 0))
+                        }
+                    }
+                )
+            }
+        }
+    }
+
     fun connectAndCheck(mContext: android.content.Context, hostName: String, callback: gacCallback) {
         InternetHelper().verifyConnect(hostName, object : InternetHelper.RequestCallback {
             override fun onSuccess(responseBody: String) {
@@ -110,6 +145,60 @@ class Tools {
         })
     }
 
+    fun fetchExampleMusicList(
+        hostName: String,
+        page: Int = 1,
+        pageSize: Int = 20,
+        onResult: (List<String>, total: Int) -> Unit
+    ) {
+        val url = "${InternetHelper().formatUrl(hostName)}/api/list_example_songs?page=$page&page_size=$pageSize"
+        val request = Request.Builder().url(url).get().build()
+        OkHttpClient().newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Handler(Looper.getMainLooper()).post { onResult(emptyList(), 0) }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    try {
+                        val json = JSONObject(body)
+                        val songs = json.getJSONArray("songs").let { arr ->
+                            List(arr.length()) { arr.getString(it) }
+                        }
+                        val total = json.getInt("total")
+                        Handler(Looper.getMainLooper()).post { onResult(songs, total) }
+                    } catch (e: Exception) {
+                        Handler(Looper.getMainLooper()).post { onResult(emptyList(), 0) }
+                    }
+                } else {
+                    Handler(Looper.getMainLooper()).post { onResult(emptyList(), 0) }
+                }
+            }
+        })
+    }
+
+    suspend fun fetchMusicListSuspend(hostName: String, roomName: String): List<String> =
+        suspendCancellableCoroutine { continuation ->
+            fetchMusicList(hostName, roomName) { list ->
+                if (continuation.isActive) {
+                    continuation.resume(list)
+                }
+            }
+        }
+
+    suspend fun fetchExampleMusicListSuspend(
+        hostName: String,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Pair<List<String>, Int> = suspendCancellableCoroutine { continuation ->
+        fetchExampleMusicList(hostName, page, pageSize) { list, total ->
+            if (continuation.isActive) {
+                continuation.resume(Pair(list, total))
+            }
+        }
+        continuation.invokeOnCancellation {
+        }
+    }
     fun enterRoom(
         mContext: Context,
         hostName: String,

@@ -47,8 +47,8 @@ android {
         applicationId = "com.xshe.quantum"
         minSdk = 28
         targetSdk = 36
-        versionCode = 204
-        versionName = "V2.0.4"
+        versionCode = 221
+        versionName = "V2.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -87,7 +87,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -100,7 +100,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.androidx.compose.animation.core)
-
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     // 测试
     testImplementation(libs.junit)
@@ -112,6 +112,12 @@ dependencies {
     // Debug 专属
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    //MIUIX
+    implementation("top.yukonga.miuix.kmp:miuix:0.8.4")
+    implementation("top.yukonga.miuix.kmp:miuix-icons:0.8.4")
+    implementation("top.yukonga.miuix.kmp:miuix-navigation3-ui:0.8.4")
+    implementation("top.yukonga.miuix.kmp:miuix-navigation3-adaptive:0.8.4")
 
     // Compose 编译器
     implementation(libs.androidx.compose.compiler)

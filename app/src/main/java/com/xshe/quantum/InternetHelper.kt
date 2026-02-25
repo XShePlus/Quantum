@@ -1,6 +1,7 @@
 package com.xshe.quantum
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import okhttp3.Call
@@ -210,6 +211,18 @@ class InternetHelper {
         })
     }
 
+    fun getExampleCoverUrl(hostName: String, fileName: String): String {
+        val baseUrl = formatUrl(hostName)
+        val encodedName = Uri.encode(fileName)
+        return "$baseUrl/api/cover/example/$encodedName"
+    }
+    fun getRoomCoverUrl(hostName: String, roomName: String, fileName: String): String {
+        val baseUrl = formatUrl(hostName)
+        val encodedRoom = Uri.encode(roomName)
+        val encodedFile = Uri.encode(fileName)
+        return "$baseUrl/api/cover/$encodedRoom/$encodedFile"
+    }
+
     fun appendMessage(
         url: String,
         roomName: String,
@@ -316,6 +329,40 @@ class InternetHelper {
         })
     }
 
+
+    fun searchExampleSongs(hostName: String, keyword: String, page: Int, pageSize: Int, callback: RequestCallback) {
+        val url = formatUrl(hostName)
+        val encodedKeyword = Uri.encode(keyword)
+        val request = Request.Builder()
+            .url("$url/api/search_example_songs?q=$encodedKeyword&page=$page&page_size=$pageSize")
+            .get()
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) callback.onSuccess(body) else callback.onFailure()
+            }
+        })
+    }
+
+    fun getServerVersion(hostName: String, callback: RequestCallback) {
+        val request = Request.Builder()
+            .url("${formatUrl(hostName)}/api/version")
+            .get()
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful && body.isNotBlank()) callback.onSuccess(body)
+                else callback.onFailure()
+            }
+        })
+    }
+
     fun getPAMNumber(
         hostName: String,
         roomName: String,
@@ -352,36 +399,35 @@ class InternetHelper {
     fun updateMusicStatus(
         hostName: String,
         roomName: String,
+        userName: String,
         isPause: Boolean,
         time: Int,
         musicName: String,
+        isExample: Boolean,
+        updateTime: Long = System.currentTimeMillis(),
         callback: RoomRequestCallback
     ) {
-        val client = OkHttpClient()
-        val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
+        val client = okHttpClient // 复用，不要每次 new OkHttpClient()
+        val url = formatUrl(hostName)
 
         val json = JSONObject().apply {
             put("room_name", roomName)
+            put("user_name", userName)
             put("is_music_pause", isPause)
             put("current_music_time", time)
             put("current_music", musicName)
+            put("is_example", isExample)
+            put("update_time", updateTime)
         }
 
-        val body = RequestBody.create(
-            "application/json; charset=utf-8".toMediaTypeOrNull(),
-            json.toString()
-        )
-
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
         val request = Request.Builder()
             .url("$url/api/update_music_status")
             .post(body)
             .build()
 
         client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback.onFailure()
-            }
-
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) callback.onSuccess() else callback.onFailure()
             }
@@ -393,4 +439,53 @@ class InternetHelper {
         val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
         return "$url/api/stream/$roomName/$fileName"
     }
+
+    fun getExampleMusicList(hostName: String, callback: RequestCallback) {
+        val url = formatUrl(hostName)
+        val request = Request.Builder()
+            .url("$url/api/list_example_songs")
+            .get()
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) callback.onSuccess(body) else callback.onFailure()
+            }
+        })
+    }
+
+    // 获取模板音乐流地址
+    fun getExampleStreamUrl(hostName: String, fileName: String): String {
+        val baseUrl = formatUrl(hostName)
+        return "$baseUrl/api/stream_example/$fileName"
+    }
+
+    fun setExampleMode(
+        hostName: String,
+        roomName: String,
+        userName: String,
+        exampleMode: Boolean,
+        callback: RoomRequestCallback
+    ) {
+        val json = JSONObject().apply {
+            put("room_name", roomName)
+            put("user_name", userName)
+            put("example_mode", exampleMode)
+        }
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val request = Request.Builder()
+            .url("${formatUrl(hostName)}/api/set_example_mode")
+            .post(body)
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) callback.onSuccess() else callback.onFailure()
+            }
+        })
+    }
+
 }
