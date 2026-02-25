@@ -114,11 +114,14 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -152,6 +155,8 @@ import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Text
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -444,28 +449,34 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar {
-                val tabs = listOf(
-                    Triple(stringResource(R.string.hostButton), 0, Icons.Default.Home),
-                    Triple(stringResource(R.string.chatButton), 1, Icons.AutoMirrored.Filled.Chat),
-                    Triple(stringResource(R.string.musicButton), 2, Icons.Default.MusicNote)
-                )
-
-                tabs.forEach { (label, index, icon) ->
-                    val isTabDisabled = (index == 1 || index == 2) && values.isCanSelected
-
-                    NavigationBarItem(
-                        selected = i == index,
-                        onClick = {
-                            if (!isTabDisabled) {
-                                i = index
-                            } else {
-                                tools.showToast(mContext, "请先进入一个房间")
-                            }
-                        },
-                        icon = icon,
-                        label = label
+            key(values.isCanSelected) {
+                NavigationBar {
+                    val tabs = listOf(
+                        Triple(stringResource(R.string.hostButton), 0, Icons.Default.Home),
+                        Triple(
+                            stringResource(R.string.chatButton),
+                            1,
+                            Icons.AutoMirrored.Filled.Chat
+                        ),
+                        Triple(stringResource(R.string.musicButton), 2, Icons.Default.MusicNote)
                     )
+
+                    tabs.forEach { (label, index, icon) ->
+                        val isTabDisabled = (index == 1 || index == 2) && values.isCanSelected
+
+                        NavigationBarItem(
+                            selected = i == index,
+                            onClick = {
+                                if (!isTabDisabled) {
+                                    i = index
+                                } else {
+                                    tools.showToast(mContext, "请先进入一个房间")
+                                }
+                            },
+                            icon = icon,
+                            label = label
+                        )
+                    }
                 }
             }
         }
@@ -496,7 +507,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                         color = MiuixTheme.colorScheme.onSurface
                     )
 
-                    if (updateVersionName.isNotBlank() && updateUrl.isNotBlank()) {
+                    if (updateVersionName.isNotBlank() && updateUrl.isNotBlank() && i == 0) {
                         Text(
                             text = "新版本($updateVersionName)",
                             style = MiuixTheme.textStyles.body2,
@@ -800,6 +811,7 @@ fun HostList(
 
                                             itemList[index] = item.copy(isSelected = false)
                                             values.isCanSelected = true
+                                            Log.d("EXIT_ROOM", values.isCanSelected.toString())
                                             values.roomName = ""
                                             onExitRoomSuccess()
                                         }
@@ -892,7 +904,8 @@ fun PlusRoomDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = { onDismissRequest() }, text = "取消")
                     TextButton(onClick = {
@@ -947,7 +960,8 @@ fun RoomPasswordDialog(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = { onDismissRequest() }, text = "取消")
                     TextButton(onClick = { onConfirmation(roomName, password) }, text = "加入")
@@ -957,6 +971,7 @@ fun RoomPasswordDialog(
     }
 }
 
+
 @Composable
 fun ConnectListItem(
     listItem: Values.ListItem,
@@ -964,23 +979,22 @@ fun ConnectListItem(
     onSelectClick: () -> Unit
 ) {
     val isSelected = listItem.isSelected
-    val cardShape = RoundedCornerShape(16.dp)
+    val borderColor =
+        if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline.copy(
+            alpha = 0.3f
+        )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
-            .graphicsLayer {
-                shadowElevation = if (isSelected) 20f else 0f
-                shape = cardShape
-                clip = true
-            }
-            .background(
-                color = if (isSelected) MiuixTheme.colorScheme.primaryContainer
-                else MiuixTheme.colorScheme.surface.copy(alpha = 0.5f),
-                shape = cardShape
-            )
+            .padding(vertical = 6.dp, horizontal = 4.dp)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
             .clickable(onClick = onSelectClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            else MiuixTheme.colorScheme.surface
+        )
     ) {
         Row(
             modifier = Modifier
@@ -989,41 +1003,24 @@ fun ConnectListItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = listItem.itemHost,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected)
-                        MiuixTheme.colorScheme.onPrimaryContainer   // 主题修改后将自动变深
-                    else
-                        MiuixTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = if (isSelected) "当前所在房间" else "点击加入",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.outline
-                )
+            Column {
+                Text(text = listItem.itemHost, style = MiuixTheme.textStyles.body1)
+                if (isSelected) {
+                    Text(
+                        text = "已加入此房间",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.primary
+                    )
+                }
             }
 
-            Text(
-                text = listItem.itemStatus,
-                fontSize = 20.sp,
-                color = if (isSelected) MiuixTheme.colorScheme.onPrimaryContainer else Color.Unspecified, 
-                modifier = Modifier
-                    .background(
-                        color = if (listItem.itemStatus == "√")
-                            (if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.3f)
-                            else MiuixTheme.colorScheme.primary.copy(alpha = 0.1f))
-                        else
-                            (if (isSelected) MiuixTheme.colorScheme.error.copy(alpha = 0.3f)
-                            else MiuixTheme.colorScheme.error.copy(alpha = 0.1f)),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+            if (!isSelected) {
+                Text(
+                    text = listItem.itemStatus,
+                    color = if (listItem.itemStatus == "√") Color(0xFF4CAF50) else Color.Gray,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -1082,44 +1079,47 @@ fun ChatView(
             itemsIndexed(values.messageList.reversed()) { index, msg ->
                 key(index) {
                     val isMe = msg.startsWith("$userName:")
-                    val displayMsg = msg.substringAfter(":")
+                    val sender = msg.substringBefore(":", "未知用户")
+                    val displayMsg = if (msg.contains(":")) msg.substringAfter(":") else msg
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .animateItem(
-                                placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                ),
-                                fadeInSpec = tween(300),
-                                fadeOutSpec = tween(300)
-                            ),
+                            .padding(vertical = 4.dp),
                         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
                     ) {
-                        val bubbleColor = if (isMe) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surface
+                        val bubbleColor =
+                            if (isMe) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceVariant
+                        val contentColor =
+                            if (isMe) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceContainer
+
                         val bubbleShape = RoundedCornerShape(
                             topStart = 16.dp, topEnd = 16.dp,
-                            bottomStart = if (isMe) 16.dp else 0.dp,
-                            bottomEnd = if (isMe) 0.dp else 16.dp
+                            bottomStart = if (isMe) 16.dp else 2.dp,
+                            bottomEnd = if (isMe) 2.dp else 16.dp
                         )
-                        Card(
-                            modifier = Modifier
-                                .widthIn(max = 280.dp)
-                                .background(color = bubbleColor, shape = bubbleShape)
+
+                        Surface(
+                            modifier = Modifier.widthIn(max = 280.dp),
+                            color = bubbleColor,
+                            shape = bubbleShape
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 if (!isMe) {
                                     Text(
-                                        text = msg.substringBefore(":"),
-                                        style = MiuixTheme.textStyles.body2,
+                                        text = sender,
+                                        style = MiuixTheme.textStyles.body2.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        ),
                                         color = MiuixTheme.colorScheme.primary
                                     )
+                                    Spacer(modifier = Modifier.height(4.dp))
                                 }
                                 Text(
                                     text = displayMsg,
-                                    color = if (isMe) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                                    style = MiuixTheme.textStyles.body2
+                                    color = contentColor,
+                                    style = MiuixTheme.textStyles.body1
                                 )
                             }
                         }
@@ -1580,7 +1580,10 @@ fun MusicView(
                         if (searchIsLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         } else {
-                            TextButton(onClick = { if (!searchIsLoading) searchPage++ }, text = "加载更多")
+                            TextButton(
+                                onClick = { if (!searchIsLoading) searchPage++ },
+                                text = "加载更多"
+                            )
                         }
                     }
                 }
@@ -1595,7 +1598,10 @@ fun MusicView(
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         } else {
-                            TextButton(onClick = { if (!isLoading && hasMore) currentPage++ }, text = "加载更多")
+                            TextButton(
+                                onClick = { if (!isLoading && hasMore) currentPage++ },
+                                text = "加载更多"
+                            )
                         }
                     }
                 }
@@ -1633,9 +1639,18 @@ fun MusicView(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                            Icon(
+                                Icons.Default.Add,
+                                null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MiuixTheme.colorScheme.primary
+                            )
                             Spacer(Modifier.width(4.dp))
-                            Text("上传音乐", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.primary)
+                            Text(
+                                "上传音乐",
+                                style = MiuixTheme.textStyles.body1,
+                                color = MiuixTheme.colorScheme.primary
+                            )
                         }
                     }
                 }

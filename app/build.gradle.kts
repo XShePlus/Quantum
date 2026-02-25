@@ -50,8 +50,8 @@ android {
         applicationId = "com.xshe.quantum"
         minSdk = 28
         targetSdk = 36
-        versionCode = 221
-        versionName = "V2.2.1"
+        versionCode = 222
+        versionName = "V2.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
