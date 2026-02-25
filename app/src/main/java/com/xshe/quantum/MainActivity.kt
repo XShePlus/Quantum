@@ -1,7 +1,6 @@
 package com.xshe.quantum
 
 import android.Manifest
-import android.R.attr.contentDescription
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -60,19 +59,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonColors
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -109,18 +95,6 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -136,14 +110,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.ripple
-import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -151,6 +123,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.DialogProperties
@@ -162,6 +136,22 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.TextButton
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -183,7 +173,7 @@ class MainActivity : ComponentActivity() {
                         FirstComposeView(
                             modifier = Modifier
                                 .padding(innerPadding)
-                                .background(color = MaterialTheme.colorScheme.background),
+                                .background(color = MiuixTheme.colorScheme.background),
                             setting,
                             onConfirm = {
                                 setting.edit().putBoolean("FIRST", false).apply()
@@ -193,7 +183,7 @@ class MainActivity : ComponentActivity() {
                         MainComposeView(
                             modifier = Modifier
                                 .padding(innerPadding)
-                                .background(color = MaterialTheme.colorScheme.background),
+                                .background(color = MiuixTheme.colorScheme.background),
                             setting
                         )
                     }
@@ -206,18 +196,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun FirstComposeView(modifier: Modifier, setting: SharedPreferences, onConfirm: () -> Unit) {
     var name by remember { mutableStateOf("") }
-    val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-        disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
-    )
     val plusButtonModifier = Modifier.padding(5.dp)
-    val plusButtonShape = MaterialTheme.shapes.small
 
     Column(
         modifier = modifier
-            .fillMaxSize() // 占满全屏
+            .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -227,17 +210,12 @@ fun FirstComposeView(modifier: Modifier, setting: SharedPreferences, onConfirm: 
             onValueChange = { newText ->
                 name = newText
             },
-            label = { Text("来个名头") },
+            label = "来个名头",
             enabled = true,
             readOnly = false,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 24.dp),
-            shape = MaterialTheme.shapes.medium,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-            )
         )
 
         Button(
@@ -246,8 +224,6 @@ fun FirstComposeView(modifier: Modifier, setting: SharedPreferences, onConfirm: 
                 setting.edit().putString("history_host", "").commit()
                 onConfirm()
             },
-            colors = buttonColors,
-            shape = plusButtonShape,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(plusButtonModifier),
@@ -283,7 +259,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     var updateUrl by remember { mutableStateOf("") }
 
     values.historyHost = setting.getString("history_host", "暂无历史连接主机").toString()
-
 
     //启动音乐服务
     DisposableEffect(Unit) {
@@ -330,39 +305,41 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     }
 
     LaunchedEffect(Unit) {
-        InternetHelper().getServerVersion("https://quantum.xshenas.icu:61320", object : InternetHelper.RequestCallback {
-            override fun onSuccess(responseBody: String) {
-                try {
-                    val json = JSONObject(responseBody)
-                    val serverCode = json.optInt("versionCode", 0)
-                    val serverName = json.optString("versionName", "")
-                    val url = json.optString("updateURL", "")
-                    // 获取本地 versionCode
-                    val localCode = mContext.packageManager
-                        .getPackageInfo(mContext.packageName, 0)
-                        .let {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                                it.longVersionCode.toInt()
-                            else
-                                @Suppress("DEPRECATION") it.versionCode
+        InternetHelper().getServerVersion(
+            "https://quantum.xshenas.icu:61320",
+            object : InternetHelper.RequestCallback {
+                override fun onSuccess(responseBody: String) {
+                    try {
+                        val json = JSONObject(responseBody)
+                        val serverCode = json.optInt("versionCode", 0)
+                        val serverName = json.optString("versionName", "")
+                        val url = json.optString("updateURL", "")
+                        val localCode = mContext.packageManager
+                            .getPackageInfo(mContext.packageName, 0)
+                            .let {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                                    it.longVersionCode.toInt()
+                                else
+                                    @Suppress("DEPRECATION") it.versionCode
+                            }
+                        if (serverCode > localCode && serverName.isNotBlank() && url.isNotBlank()) {
+                            Handler(Looper.getMainLooper()).post {
+                                updateVersionName = serverName
+                                updateUrl = url
+                            }
+                        } else {
+                            Handler(Looper.getMainLooper()).post {
+                                updateVersionName = ""
+                                updateUrl = ""
+                            }
                         }
-                    if (serverCode > localCode && serverName.isNotBlank() && url.isNotBlank()) {
-                        Handler(Looper.getMainLooper()).post {
-                            updateVersionName = serverName
-                            updateUrl = url
-                        }
-                    } else {
-                        Handler(Looper.getMainLooper()).post {
-                            updateVersionName = ""
-                            updateUrl = ""
-                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
-            }
-            override fun onFailure() {}
-        })
+
+                override fun onFailure() {}
+            })
     }
 
     LaunchedEffect(values.roomName) {
@@ -389,7 +366,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         serverExampleMode = sExampleMode
 
         if (sMusic.isNotBlank() && sMusic != currentPlayingTrack) {
-            // 强制切歌
             currentPlayingTrack = sMusic
             val playUrl = if (sExampleMode) {
                 InternetHelper().getExampleStreamUrl(savedHost, sMusic)
@@ -405,12 +381,10 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 globalIsPlaying = !sPause
             }
         } else if (sMusic.isNotBlank()) {
-            // 同步暂停/播放
             if (!sPause != globalIsPlaying) {
                 if (sPause) player.pause() else player.start()
                 globalIsPlaying = !sPause
             }
-            // 同步进度
             val localSec = player.currentPosition / 1000
             if (sPause) {
                 if (Math.abs(localSec - sTime) > 2) player.seekTo(sTime * 1000)
@@ -450,7 +424,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                     savedHost, values.roomName, tools.userName,
                     object : InternetHelper.RequestCallback {
                         override fun onSuccess(responseBody: String) {
-                            // 可暂时移除 lastManualActionTime 判断，或确保它在手动操作时更新
                             try {
                                 val json = JSONObject(responseBody)
                                 Handler(Looper.getMainLooper()).post {
@@ -468,11 +441,10 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
         }
     }
 
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+            NavigationBar {
                 val tabs = listOf(
                     Triple(stringResource(R.string.hostButton), 0, Icons.Default.Home),
                     Triple(stringResource(R.string.chatButton), 1, Icons.AutoMirrored.Filled.Chat),
@@ -480,7 +452,7 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 )
 
                 tabs.forEach { (label, index, icon) ->
-                    val isTabDisabled = (index == 1 || index == 2) && !values.isInRoom
+                    val isTabDisabled = (index == 1 || index == 2) && values.isCanSelected
 
                     NavigationBarItem(
                         selected = i == index,
@@ -491,26 +463,8 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                                 tools.showToast(mContext, "请先进入一个房间")
                             }
                         },
-                        icon = {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = label,
-                                tint = if (isTabDisabled) {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                } else {
-                                    if (i == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = label,
-                                color = if (isTabDisabled) {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                } else Color.Unspecified
-                            )
-                        },
-                        enabled = true
+                        icon = icon,
+                        label = label
                     )
                 }
             }
@@ -521,10 +475,10 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 .padding(bottom = innerPadding.calculateBottomPadding())
                 .fillMaxSize()
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 2.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MiuixTheme.colorScheme.surface)
             ) {
                 Row(
                     modifier = Modifier
@@ -538,17 +492,18 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                             if (values.roomName.isNullOrEmpty()) "null"
                             else "\uD83D\uDED6 ${values.roomName}(${roomNumbers.present}/${roomNumbers.max})"
                         },
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                        style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MiuixTheme.colorScheme.onSurface
                     )
 
                     if (updateVersionName.isNotBlank() && updateUrl.isNotBlank()) {
                         Text(
                             text = "新版本($updateVersionName)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
+                                .background(MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
                                 .clickable {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl))
                                     mContext.startActivity(intent)
@@ -567,7 +522,6 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                 ) {
                     when (i) {
                         0 -> HostList(
-                            buttonColors = ButtonDefaults.buttonColors(),
                             tools = tools, values = values, itemList = itemList,
                             host = savedHost, hostNameInput = hostInputText,
                             musicService = musicService,
@@ -580,14 +534,13 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
                         )
 
                         1 -> ChatView(
-                            ButtonDefaults.buttonColors(),
                             tools,
                             values,
                             savedHost,
                             setting
                         )
 
-                        2 ->  MusicView(
+                        2 -> MusicView(
                             savedHost, values.roomName, tools, mediaPlayer,
                             globalIsPlaying, currentPlayingTrack,
                             uiExampleMode = uiExampleMode,
@@ -605,10 +558,8 @@ fun MainComposeView(modifier: Modifier, setting: SharedPreferences) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostList(
-    buttonColors: ButtonColors,
     tools: Tools,
     values: Values,
     itemList: SnapshotStateList<Values.ListItem>,
@@ -621,12 +572,10 @@ fun HostList(
 ) {
     var showPlusRoomDialog by remember { mutableStateOf(false) }
     val mContext = LocalContext.current
-    var expanded by remember { mutableStateOf(false) } // 下拉列表显示的状态
-    val nplusButtonShape = MaterialTheme.shapes.extraSmall
-    val plusButtonShape = MaterialTheme.shapes.small
+    var expanded by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var pendingRoomItem by remember { mutableStateOf<Values.ListItem?>(null) }
-
+    val textFieldWidth = remember { mutableStateOf(0) }
 
     val updateRoomList = {
         itemList.clear()
@@ -667,7 +616,6 @@ fun HostList(
                     mContext, host, roomName, password, tools.userName,
                     object : Tools.gacCallback {
                         override fun onSuccess() {
-                            // 找到并更新列表项
                             val idx = itemList.indexOf(pendingRoomItem)
                             if (idx != -1) {
                                 itemList[idx] = itemList[idx].copy(isSelected = true)
@@ -726,12 +674,12 @@ fun HostList(
                     onClick = { showPlusRoomDialog = true },
                     modifier = Modifier
                         .size(24.dp)
-                        .weight(1f) // 占一半高度
+                        .weight(1f)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "添加",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MiuixTheme.colorScheme.primary
                     )
                 }
                 IconButton(
@@ -748,57 +696,47 @@ fun HostList(
                     },
                     modifier = Modifier
                         .size(24.dp)
-                        .weight(1f) // 占一半高度
+                        .weight(1f)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "刷新",
-                        tint = MaterialTheme.colorScheme.secondary
+                        tint = MiuixTheme.colorScheme.secondary
                     )
                 }
             }
 
-
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
-                modifier = Modifier.weight(1f) // 占据中间剩余空间
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
                 TextField(
                     value = hostNameInput,
                     onValueChange = onHostNameChange,
-                    label = { Text(stringResource(R.string.host_inputer)) },
+                    label = stringResource(R.string.host_inputer),
                     modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coordinates ->
+                            textFieldWidth.value = coordinates.size.width
+                        },
                     trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                    },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                            alpha = 0.4f
-                        ),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    )
+                        IconButton(onClick = { expanded = true }) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "展开历史主机",
+                                tint = MiuixTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 )
-
-                // 下拉列表
-                ExposedDropdownMenu(
+                DropdownMenu(
                     expanded = expanded,
-                    onDismissRequest = { expanded = false }
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.width(with(LocalDensity.current) { textFieldWidth.value.toDp() })
                 ) {
                     DropdownMenuItem(
-                        text = {
-                            Text(values.historyHost)
-                        },
+                        text = { Text(values.historyHost) },
                         onClick = {
                             onHostNameChange(values.historyHost)
-                            expanded = false // 点击后关闭菜单
-                        },
-                        contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                            expanded = false
+                        }
                     )
                 }
             }
@@ -815,9 +753,7 @@ fun HostList(
                         }
                     })
                 },
-                shape = MaterialTheme.shapes.small,
                 modifier = Modifier.fillMaxHeight(),
-                contentPadding = PaddingValues(horizontal = 16.dp)
             ) {
                 Text("连接")
             }
@@ -831,8 +767,8 @@ fun HostList(
             ) {
                 Text(
                     text = "主机内暂无房间",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.outline
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.outline
                 )
             }
         } else {
@@ -855,7 +791,6 @@ fun HostList(
                                     tools.userName,
                                     object : Tools.gacCallback {
                                         override fun onSuccess() {
-                                            // 停止音乐播放
                                             musicService?.mediaPlayer?.let { player ->
                                                 if (player.isPlaying) {
                                                     player.stop()
@@ -898,8 +833,8 @@ fun PlusRoomDialog(
                 .fillMaxWidth(0.9f)
                 .height(450.dp)
                 .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) {
+
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -921,21 +856,19 @@ fun PlusRoomDialog(
                     TextField(
                         value = roomName,
                         onValueChange = { roomName = it },
-                        label = { Text("房间名称") },
+                        label = "房间名称",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp),
-                        shape = MaterialTheme.shapes.small
                     )
 
                     TextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("房间密码") },
+                        label = "房间密码",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp),
-                        shape = MaterialTheme.shapes.small
                     )
 
                     Text(text = "最大人数 (${maxNumberTrue})", fontSize = 15.sp)
@@ -959,14 +892,12 @@ fun PlusRoomDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.End, // 靠右对齐
+                    horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = { onDismissRequest() }) { Text("取消") }
+                    TextButton(onClick = { onDismissRequest() }, text = "取消")
                     TextButton(onClick = {
                         onConfirmation(roomName, maxNumberTrue, cancelTimeTrue, password)
-                    }) {
-                        Text("确认添加")
-                    }
+                    }, text = "确认添加")
                 }
             }
         }
@@ -986,15 +917,14 @@ fun RoomPasswordDialog(
                 .fillMaxWidth(0.9f)
                 .height(280.dp)
                 .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) {
+
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp)
             ) {
 
-                // --- 可滑动区域 ---
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1011,19 +941,16 @@ fun RoomPasswordDialog(
                     TextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("房间密码") },
+                        label = "房间密码",
                         modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.small
                     )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = { onDismissRequest() }) { Text("取消") }
-                    TextButton(onClick = { onConfirmation(roomName, password) }) {
-                        Text("加入")
-                    }
+                    TextButton(onClick = { onDismissRequest() }, text = "取消")
+                    TextButton(onClick = { onConfirmation(roomName, password) }, text = "加入")
                 }
             }
         }
@@ -1048,15 +975,12 @@ fun ConnectListItem(
                 shape = cardShape
                 clip = true
             }
+            .background(
+                color = if (isSelected) MiuixTheme.colorScheme.primaryContainer
+                else MiuixTheme.colorScheme.surface.copy(alpha = 0.5f),
+                shape = cardShape
+            )
             .clickable(onClick = onSelectClick),
-        shape = cardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -1065,28 +989,37 @@ fun ConnectListItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = listItem.itemHost,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                    color = if (isSelected)
+                        MiuixTheme.colorScheme.onPrimaryContainer   // 主题修改后将自动变深
+                    else
+                        MiuixTheme.colorScheme.onSurface
                 )
                 Text(
                     text = if (isSelected) "当前所在房间" else "点击加入",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.outline
                 )
             }
 
             Text(
                 text = listItem.itemStatus,
                 fontSize = 20.sp,
+                color = if (isSelected) MiuixTheme.colorScheme.onPrimaryContainer else Color.Unspecified, 
                 modifier = Modifier
                     .background(
                         color = if (listItem.itemStatus == "√")
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        else MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+                            (if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            else MiuixTheme.colorScheme.primary.copy(alpha = 0.1f))
+                        else
+                            (if (isSelected) MiuixTheme.colorScheme.error.copy(alpha = 0.3f)
+                            else MiuixTheme.colorScheme.error.copy(alpha = 0.1f)),
                         shape = RoundedCornerShape(8.dp)
                     )
                     .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1097,7 +1030,6 @@ fun ConnectListItem(
 
 @Composable
 fun ChatView(
-    buttonColors: ButtonColors,
     tools: Tools,
     values: Values,
     host: String,
@@ -1109,7 +1041,6 @@ fun ChatView(
     val url =
         if (host.startsWith("http://") || host.startsWith("https://")) host else "http://$host"
 
-    // 轮询刷新消息列表
     LaunchedEffect(values.roomName) {
         values.messageList.clear()
         while (true) {
@@ -1146,8 +1077,7 @@ fun ChatView(
                 .weight(1f)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            reverseLayout = true, // 底部往上排，新消息在最下面弹出
-            contentPadding = PaddingValues(vertical = 16.dp)
+            reverseLayout = true,
         ) {
             itemsIndexed(values.messageList.reversed()) { index, msg ->
                 key(index) {
@@ -1167,29 +1097,29 @@ fun ChatView(
                             ),
                         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
                     ) {
+                        val bubbleColor = if (isMe) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surface
+                        val bubbleShape = RoundedCornerShape(
+                            topStart = 16.dp, topEnd = 16.dp,
+                            bottomStart = if (isMe) 16.dp else 0.dp,
+                            bottomEnd = if (isMe) 0.dp else 16.dp
+                        )
                         Card(
-                            shape = RoundedCornerShape(
-                                topStart = 16.dp, topEnd = 16.dp,
-                                bottomStart = if (isMe) 16.dp else 0.dp,
-                                bottomEnd = if (isMe) 0.dp else 16.dp
-                            ),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
-                            ),
-                            modifier = Modifier.widthIn(max = 280.dp)
+                            modifier = Modifier
+                                .widthIn(max = 280.dp)
+                                .background(color = bubbleColor, shape = bubbleShape)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 if (!isMe) {
                                     Text(
                                         text = msg.substringBefore(":"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.primary
                                     )
                                 }
                                 Text(
                                     text = displayMsg,
-                                    color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                    style = MaterialTheme.typography.bodyMedium
+                                    color = if (isMe) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                                    style = MiuixTheme.textStyles.body2
                                 )
                             }
                         }
@@ -1198,7 +1128,6 @@ fun ChatView(
             }
         }
 
-        // 输入
         Row(
             modifier = Modifier
                 .navigationBarsPadding()
@@ -1209,13 +1138,9 @@ fun ChatView(
             TextField(
                 value = inputMessage,
                 onValueChange = { inputMessage = it },
-                placeholder = { Text("说点什么...") },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(24.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
+                label = "说点什么...",
+                useLabelAsPlaceholder = true,
+                modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
             IconButton(
@@ -1239,12 +1164,12 @@ fun ChatView(
                         )
                     }
                 },
-                modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
+                modifier = Modifier.background(MiuixTheme.colorScheme.primary, CircleShape)
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Send,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary
+                    tint = MiuixTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -1266,7 +1191,7 @@ fun MusicView(
     onPlayingStateChange: (Boolean) -> Unit,
     onCurrentTrackChange: (String) -> Unit,
     onManualAction: () -> Unit
-){
+) {
     if (mediaPlayer == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("正在连接播放服务...")
@@ -1318,7 +1243,6 @@ fun MusicView(
         }
     }
 
-
     LaunchedEffect(searchQuery, uiExampleMode) {
         if (!uiExampleMode) return@LaunchedEffect
         delay(500)
@@ -1339,18 +1263,21 @@ fun MusicView(
             searchResultList.addAll(songs)
             searchHasMore = searchResultList.size < total
         } catch (e: Exception) {
-            // 静默处理
         } finally {
             searchIsLoading = false
         }
     }
 
-
     LaunchedEffect(searchPage) {
         if (searchPage <= 1 || !searchHasMore || searchIsLoading || searchQuery.isBlank()) return@LaunchedEffect
         searchIsLoading = true
         try {
-            val (songs, total) = tools.searchExampleMusicSuspend(hostName, searchQuery, searchPage, 20)
+            val (songs, total) = tools.searchExampleMusicSuspend(
+                hostName,
+                searchQuery,
+                searchPage,
+                20
+            )
             val newSongs = songs.filter { it !in searchResultList }
             searchResultList.addAll(newSongs)
             searchHasMore = searchResultList.size < total
@@ -1361,7 +1288,6 @@ fun MusicView(
             searchIsLoading = false
         }
     }
-
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
@@ -1380,8 +1306,6 @@ fun MusicView(
             }
     }
 
-
-    // 播放函数
     val playTrack: (String) -> Unit = playTrack@{ fileName ->
         if (fileName.isBlank()) return@playTrack
         onCurrentTrackChange(fileName)
@@ -1401,10 +1325,16 @@ fun MusicView(
                 setOnPreparedListener { mp ->
                     mp.start()
                     onPlayingStateChange(true)
-                    // 上报时使用 uiExampleMode
                     InternetHelper().updateMusicStatus(
-                        hostName, roomName, userName, false, 0, fileName, uiExampleMode,
-                        updateTime = System.currentTimeMillis(),object : InternetHelper.RoomRequestCallback {
+                        hostName,
+                        roomName,
+                        userName,
+                        false,
+                        0,
+                        fileName,
+                        uiExampleMode,
+                        updateTime = System.currentTimeMillis(),
+                        object : InternetHelper.RoomRequestCallback {
                             override fun onSuccess() {}
                             override fun onFailure() {
                                 tools.showToast(mContext, "状态同步失败")
@@ -1418,7 +1348,6 @@ fun MusicView(
         }
     }
 
-    // 文件上传
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -1432,7 +1361,6 @@ fun MusicView(
                     uri,
                     object : Tools.gacCallback {
                         override fun onSuccess() {
-                            // 刷新房间音乐列表
                             tools.fetchMusicList(hostName, roomName) { list ->
                                 roomMusicList.clear()
                                 roomMusicList.addAll(list)
@@ -1441,7 +1369,6 @@ fun MusicView(
                         }
 
                         override fun onFailure() {
-                            // 切到主线程修改 isUploading 和弹窗
                             Handler(Looper.getMainLooper()).post {
                                 isUploading = false
                                 tools.showToast(mContext, "上传失败")
@@ -1457,7 +1384,6 @@ fun MusicView(
         LoadingDialog()
     }
 
-    // 获取列表
     LaunchedEffect(roomName, uiExampleMode) {
         searchQuery = ""
         isSearching = false
@@ -1488,7 +1414,6 @@ fun MusicView(
         }
     }
 
-    // 更新进度条
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPos = mediaPlayer.currentPosition.toFloat()
@@ -1496,7 +1421,6 @@ fun MusicView(
         }
     }
 
-    // 自动下一首
     LaunchedEffect(mediaPlayer) {
         mediaPlayer.setOnCompletionListener {
             mainHandler.post {
@@ -1516,14 +1440,19 @@ fun MusicView(
         }
     }
 
-    // 每5秒同步进度到服务器
     LaunchedEffect(isPlaying, currentPlayingTrack) {
         while (isPlaying) {
             delay(5000)
             val localTime = mediaPlayer.currentPosition / 1000
             if (localTime > 0 && currentPlayingTrack.isNotBlank()) {
                 InternetHelper().updateMusicStatus(
-                    hostName, roomName, userName, false, localTime, currentPlayingTrack, uiExampleMode,
+                    hostName,
+                    roomName,
+                    userName,
+                    false,
+                    localTime,
+                    currentPlayingTrack,
+                    uiExampleMode,
                     updateTime = System.currentTimeMillis() - 10_000L,
                     callback = object : InternetHelper.RoomRequestCallback {
                         override fun onSuccess() {}
@@ -1535,7 +1464,6 @@ fun MusicView(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 顶部开关
         Box(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
@@ -1544,7 +1472,7 @@ fun MusicView(
                     .padding(top = 16.dp, end = 16.dp)
                     .combinedClickable(
                         onClick = { onUiModeChange(!uiExampleMode) },
-                        indication = ripple(),
+                        indication = LocalIndication.current,
                         interactionSource = remember { MutableInteractionSource() }
                     ),
                 horizontalArrangement = Arrangement.End
@@ -1557,12 +1485,6 @@ fun MusicView(
                     checked = uiExampleMode,
                     onCheckedChange = null,
                     modifier = Modifier.scale(1.1f),
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.primary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
                 )
             }
         }
@@ -1576,15 +1498,15 @@ fun MusicView(
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索模板歌曲...") },
+                    label = "搜索模板歌曲...",
+                    useLabelAsPlaceholder = true,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
                     singleLine = true,
                     leadingIcon = {
                         Icon(
                             Icons.Default.MusicNote,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
+                            tint = MiuixTheme.colorScheme.outline,
                             modifier = Modifier.size(20.dp)
                         )
                     },
@@ -1598,17 +1520,10 @@ fun MusicView(
                                 )
                             }
                         }
-                    },
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
+                    }
                 )
             }
 
-            // 搜索结果为空时的提示
             if (isSearching && searchResultList.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -1618,18 +1533,16 @@ fun MusicView(
                 ) {
                     Text(
                         text = "未找到「$searchQuery」相关歌曲",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.outline
                     )
                 }
             }
         }
-        // 音乐列表
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(16.dp)
         ) {
             items(
                 items = currentDisplayList,
@@ -1641,7 +1554,7 @@ fun MusicView(
                     InternetHelper().getStreamUrl(hostName, roomName, fileName)
                 }
                 val coverUrl = if (uiExampleMode) {
-                    InternetHelper().getExampleCoverUrl(hostName, fileName)  // 新增
+                    InternetHelper().getExampleCoverUrl(hostName, fileName)
                 } else {
                     InternetHelper().getRoomCoverUrl(hostName, roomName, fileName)
                 }
@@ -1659,70 +1572,70 @@ fun MusicView(
             if (uiExampleMode && searchQuery.isNotBlank() && searchHasMore) {
                 item(key = "search_load_more") {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         if (searchIsLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         } else {
-                            TextButton(onClick = { if (!searchIsLoading) searchPage++ }) {
-                                Text("加载更多")
-                            }
+                            TextButton(onClick = { if (!searchIsLoading) searchPage++ }, text = "加载更多")
                         }
                     }
                 }
             } else if (uiExampleMode && searchQuery.isBlank() && hasMore) {
                 item(key = "load_more") {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
                         } else {
-                            TextButton(onClick = { if (!isLoading && hasMore) currentPage++ }) {
-                                Text("加载更多")
-                            }
+                            TextButton(onClick = { if (!isLoading && hasMore) currentPage++ }, text = "加载更多")
                         }
                     }
                 }
             }
         }
 
-        // 底部控制区（保持原样，但上传按钮条件改为 !isExampleMode）
-        Surface(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-            tonalElevation = 8.dp
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(MiuixTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 20.dp)
                     .padding(top = 12.dp, bottom = 28.dp)
             ) {
-                // 上传按钮（仅房间模式显示）
                 if (!uiExampleMode) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
-                            onClick = {
-                                launcher.launch(
-                                    arrayOf(
-                                        "audio/mpeg",
-                                        "audio/flac",
-                                        "audio/aac"
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    launcher.launch(
+                                        arrayOf(
+                                            "audio/mpeg",
+                                            "audio/flac",
+                                            "audio/aac"
+                                        )
                                     )
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                             Spacer(Modifier.width(4.dp))
-                            Text("上传音乐", style = MaterialTheme.typography.labelLarge)
+                            Text("上传音乐", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -1735,8 +1648,13 @@ fun MusicView(
                             onManualAction()
                             mediaPlayer.seekTo(currentPos.toInt())
                             InternetHelper().updateMusicStatus(
-                                hostName, roomName, userName, !isPlaying, (currentPos / 1000).toInt(),
-                                currentPlayingTrack, uiExampleMode,
+                                hostName,
+                                roomName,
+                                userName,
+                                !isPlaying,
+                                (currentPos / 1000).toInt(),
+                                currentPlayingTrack,
+                                uiExampleMode,
                                 updateTime = System.currentTimeMillis(),
                                 callback = object : InternetHelper.RoomRequestCallback {
                                     override fun onSuccess() {}
@@ -1745,11 +1663,6 @@ fun MusicView(
                             )
                         },
                         valueRange = 0f..duration,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                        ),
                         modifier = Modifier.height(32.dp)
                     )
                     Row(
@@ -1760,11 +1673,11 @@ fun MusicView(
                     ) {
                         Text(
                             tools.formatTime(currentPos.toInt()),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MiuixTheme.textStyles.body2
                         )
                         Text(
                             tools.formatTime(duration.toInt()),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MiuixTheme.textStyles.body2
                         )
                     }
                 }
@@ -1775,7 +1688,6 @@ fun MusicView(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 歌曲名
                     Row(
                         modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically
@@ -1783,19 +1695,18 @@ fun MusicView(
                         Column {
                             Text(
                                 text = if (currentPlayingTrack.isNotBlank()) currentPlayingTrack else "未选择曲目",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.ExtraBold),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = if (isPlaying) "正在播放" else "暂停中",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.primary
                             )
                         }
                     }
 
-                    // 控制按钮
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1814,35 +1725,42 @@ fun MusicView(
                             )
                         }
 
-                        Surface(
-                            onClick = {
-                                if (currentPlayingTrack.isBlank()) return@Surface
-                                onManualAction()
-                                val nextPauseState = isPlaying
-                                if (isPlaying) { mediaPlayer.pause(); onPlayingStateChange(false) }
-                                else { mediaPlayer.start(); onPlayingStateChange(true) }
-                                InternetHelper().updateMusicStatus(
-                                    hostName, roomName, userName, nextPauseState,
-                                    (mediaPlayer.currentPosition / 1000), currentPlayingTrack, uiExampleMode,
-                                    updateTime = System.currentTimeMillis(),
-                                    callback = object : InternetHelper.RoomRequestCallback {
-                                        override fun onSuccess() {}
-                                        override fun onFailure() {}
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(MiuixTheme.colorScheme.primary, CircleShape)
+                                .clickable {
+                                    if (currentPlayingTrack.isBlank()) return@clickable
+                                    onManualAction()
+                                    val nextPauseState = isPlaying
+                                    if (isPlaying) {
+                                        mediaPlayer.pause(); onPlayingStateChange(false)
+                                    } else {
+                                        mediaPlayer.start(); onPlayingStateChange(true)
                                     }
-                                )
-                            },
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(56.dp)
+                                    InternetHelper().updateMusicStatus(
+                                        hostName,
+                                        roomName,
+                                        userName,
+                                        nextPauseState,
+                                        (mediaPlayer.currentPosition / 1000),
+                                        currentPlayingTrack,
+                                        uiExampleMode,
+                                        updateTime = System.currentTimeMillis(),
+                                        callback = object : InternetHelper.RoomRequestCallback {
+                                            override fun onSuccess() {}
+                                            override fun onFailure() {}
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
 
                         IconButton(
@@ -1889,7 +1807,6 @@ fun MusicItem(
         if (albumArt == null && !isLoading && !loadFailed) {
             isLoading = true
 
-            // 1. 尝试从磁盘缓存加载
             val diskBitmap = withContext(Dispatchers.IO) {
                 val cacheFile = File(context.cacheDir, "covers/${trackUrl.md5()}.jpg")
                 if (cacheFile.exists()) {
@@ -1903,7 +1820,6 @@ fun MusicItem(
                 return@LaunchedEffect
             }
 
-            // 2. 从网络加载
             val bitmap = withContext(Dispatchers.IO) {
                 try {
                     tools.getAudioAlbumArt(trackUrl)
@@ -1912,9 +1828,7 @@ fun MusicItem(
                 }
             }
             if (bitmap != null) {
-                // 存入内存缓存
                 Tools.ImageCache.put(trackUrl, bitmap)
-                // 存入磁盘缓存
                 withContext(Dispatchers.IO) {
                     val cacheDir = File(context.cacheDir, "covers")
                     cacheDir.mkdirs()
@@ -1936,7 +1850,7 @@ fun MusicItem(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .background(
-                if (isThisTrack) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                if (isThisTrack) MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                 else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
@@ -1944,12 +1858,11 @@ fun MusicItem(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 封面展示
         Box(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MiuixTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -1961,18 +1874,16 @@ fun MusicItem(
                         contentScale = ContentScale.Crop
                     )
                 }
+
                 isLoading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 }
+
                 else -> {
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MiuixTheme.colorScheme.primary
                     )
                 }
             }
@@ -1985,7 +1896,8 @@ fun MusicItem(
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            style = if (isThisTrack) MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyLarge
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = if (isThisTrack) FontWeight.Bold else FontWeight.Normal
         )
 
         IconButton(onClick = onPlayClick) {
@@ -2006,21 +1918,18 @@ fun LoadingDialog() {
             dismissOnClickOutside = false
         )
     ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp
+        Box(
+            modifier = Modifier
+                .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .padding(24.dp)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary
-                )
+                CircularProgressIndicator()
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(text = "正在上传，请稍候...", style = MaterialTheme.typography.bodyMedium)
+                Text(text = "正在上传，请稍候...", style = MiuixTheme.textStyles.body2)
             }
         }
     }

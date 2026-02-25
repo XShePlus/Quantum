@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -22,11 +23,13 @@ android {
         }
     }
 
+    @Suppress("DEPRECATION")
     applicationVariants.all {
-        outputs.all {
+        val variant = this
+        variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            if (buildType.name == "release") {
-                output.outputFileName = "Quantum_${versionName}.apk"
+            if (variant.buildType.name == "release") {
+                output.outputFileName = "Quantum_${variant.versionName}.apk"
             }
         }
     }
@@ -73,8 +76,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = "11"
+    kotlin {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_11
+        }
     }
 
     buildFeatures {
@@ -100,7 +105,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.androidx.compose.animation.core)
-    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation(libs.coil.compose)
 
     // 测试
     testImplementation(libs.junit)
@@ -114,11 +119,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     //MIUIX
-    implementation("top.yukonga.miuix.kmp:miuix:0.8.4")
-    implementation("top.yukonga.miuix.kmp:miuix-icons:0.8.4")
-    implementation("top.yukonga.miuix.kmp:miuix-navigation3-ui:0.8.4")
-    implementation("top.yukonga.miuix.kmp:miuix-navigation3-adaptive:0.8.4")
+    implementation(libs.miuix)
+    implementation(libs.miuix.icons)
+    implementation(libs.miuix.navigation3.ui)
+    implementation(libs.miuix.navigation3.adaptive)
 
-    // Compose 编译器
-    implementation(libs.androidx.compose.compiler)
+//    // Compose 编译器
+//    implementation(libs.androidx.compose.compiler)
 }
