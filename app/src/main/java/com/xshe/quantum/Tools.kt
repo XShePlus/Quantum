@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.widget.Toast
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -23,7 +24,14 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import kotlin.coroutines.resume
+
+fun String.md5(): String {
+    val md = MessageDigest.getInstance("MD5")
+    val digest = md.digest(toByteArray())
+    return digest.joinToString("") { "%02x".format(it) }
+}
 
 class Tools {
     interface gacCallback {
@@ -176,16 +184,6 @@ class Tools {
             }
         })
     }
-
-    suspend fun fetchMusicListSuspend(hostName: String, roomName: String): List<String> =
-        suspendCancellableCoroutine { continuation ->
-            fetchMusicList(hostName, roomName) { list ->
-                if (continuation.isActive) {
-                    continuation.resume(list)
-                }
-            }
-        }
-
     suspend fun fetchExampleMusicListSuspend(
         hostName: String,
         page: Int = 1,
@@ -317,7 +315,6 @@ class Tools {
                 }
             })
     }
-
     suspend fun getAudioAlbumArt(url: String): Bitmap? {
         return withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
@@ -367,5 +364,45 @@ class Tools {
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         return "%02d:%02d".format(minutes, seconds)
+    }
+
+    data class MusicListCache(
+        val songs: List<String>,
+        val currentPage: Int,
+        val totalSongs: Int,
+        val lastUpdated: Long
+    )
+    object MusicCacheManager {
+        private val gson = Gson()
+        private fun getCacheFile(context: Context, host: String): File {
+            val hostHash = host.md5()
+            return File(context.cacheDir, "music_cache_$hostHash.json")
+        }
+
+        suspend fun saveCache(context: Context, host: String, cache: MusicListCache) {
+            withContext(Dispatchers.IO) {
+                val file = getCacheFile(context, host)
+                file.writeText(gson.toJson(cache))
+            }
+        }
+
+        suspend fun loadCache(context: Context, host: String): MusicListCache? {
+            return withContext(Dispatchers.IO) {
+                val file = getCacheFile(context, host)
+                if (!file.exists()) return@withContext null
+                try {
+                    gson.fromJson(file.readText(), MusicListCache::class.java)
+                } catch (e: Exception) {
+                    file.delete() // 损坏则删除
+                    null
+                }
+            }
+        }
+
+        suspend fun clearCache(context: Context, host: String) {
+            withContext(Dispatchers.IO) {
+                getCacheFile(context, host).delete()
+            }
+        }
     }
 }
