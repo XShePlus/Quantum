@@ -367,10 +367,10 @@ class Tools {
     }
 
     data class MusicListCache(
-        val songs: List<String>,
-        val currentPage: Int,
-        val totalSongs: Int,
-        val lastUpdated: Long
+        val songs: List<String> = emptyList(),
+        val currentPage: Int = 1,
+        val totalSongs: Int = 0,
+        val lastUpdated: Long = 0L
     )
     object MusicCacheManager {
         private val gson = Gson()
@@ -391,9 +391,15 @@ class Tools {
                 val file = getCacheFile(context, host)
                 if (!file.exists()) return@withContext null
                 try {
-                    gson.fromJson(file.readText(), MusicListCache::class.java)
+                    val cache = gson.fromJson(file.readText(), MusicListCache::class.java)
+                    // 确保 songs 不为 null
+                    if (cache?.songs == null) {
+                        file.delete()
+                        return@withContext null
+                    }
+                    cache
                 } catch (e: Exception) {
-                    file.delete() // 损坏则删除
+                    file.delete()
                     null
                 }
             }

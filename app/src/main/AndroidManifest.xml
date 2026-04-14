@@ -21,8 +21,9 @@
         android:usesCleartextTraffic="true">
         <service
             android:name=".MusicService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <activity
             android:name=".MainActivity"

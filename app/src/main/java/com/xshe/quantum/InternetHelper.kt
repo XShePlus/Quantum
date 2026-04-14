@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -11,8 +12,6 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Callback
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -21,6 +20,8 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class InternetHelper {
     private val okHttpClient by lazy {
@@ -45,7 +46,55 @@ class InternetHelper {
         fun onFailure()
     }
 
-    // 统一处理 URL 格式
+    fun connectSSE(
+        hostName: String,
+        roomName: String,
+        userName: String,
+        onEvent: (type: String, data: String) -> Unit,
+        onDisconnect: () -> Unit
+    ): okhttp3.Call {
+        val sseClient = OkHttpClient.Builder()
+            .readTimeout(0, TimeUnit.SECONDS) // SSE 必须关闭读超时
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .build()
+
+        val url = "${formatUrl(hostName)}/api/sse" +
+                "?room=${Uri.encode(roomName)}&user=${Uri.encode(userName)}"
+        val request = Request.Builder().url(url).get().build()
+
+        val call = sseClient.newCall(request)
+        thread(name = "SSEReaderThread") {
+            try {
+                call.execute().use { response ->
+                    val source = response.body?.source() ?: return@thread
+                    var eventType = "message"
+                    val dataBuffer = StringBuilder()
+
+                    while (!call.isCanceled()) {
+                        val line = source.readUtf8Line() ?: break
+                        when {
+                            line.startsWith("event:") -> eventType = line.removePrefix("event:").trim()
+                            line.startsWith("data:") -> dataBuffer.append(line.removePrefix("data:").trim())
+                            line.isEmpty() -> { // 空行代表事件结束
+                                if (dataBuffer.isNotEmpty()) {
+                                    onEvent(eventType, dataBuffer.toString())
+                                }
+                                dataBuffer.clear()
+                                eventType = "message"
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (!call.isCanceled()) {
+                    Log.e("SSE", "Disconnected: ${e.message}")
+                    onDisconnect()
+                }
+            }
+        }
+        return call
+    }
+
     fun formatUrl(host: String): String {
         val trimmed = host.trim()
         return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
@@ -126,7 +175,6 @@ class InternetHelper {
             try {
                 val response = okHttpClient.newCall(request).execute()
                 val result = response.body?.string() ?: ""
-                // 使用 contains 容错换行符
                 if (response.isSuccessful && result.contains("行")) {
                     callback.onSuccess()
                 } else {
@@ -216,6 +264,7 @@ class InternetHelper {
         val encodedName = Uri.encode(fileName)
         return "$baseUrl/api/cover/example/$encodedName"
     }
+
     fun getRoomCoverUrl(hostName: String, roomName: String, fileName: String): String {
         val baseUrl = formatUrl(hostName)
         val encodedRoom = Uri.encode(roomName)
@@ -257,7 +306,7 @@ class InternetHelper {
         val mediaType = when {
             file.name.endsWith(".flac", ignoreCase = true) -> "audio/flac".toMediaType()
             file.name.endsWith(".aac", ignoreCase = true) -> "audio/aac".toMediaType()
-            else -> "audio/mpeg".toMediaType() // 默认为 mp3
+            else -> "audio/mpeg".toMediaType()
         }
 
         val requestBody = MultipartBody.Builder()
@@ -319,7 +368,6 @@ class InternetHelper {
             override fun onFailure(call: Call, e: IOException) = callback.onFailure()
             override fun onResponse(call: Call, response: Response) {
                 val resBody = response.body?.string() ?: ""
-                // 关键修正：只有 200 OK 且内容不为空才算成功
                 if (response.isSuccessful && resBody.isNotBlank()) {
                     callback.onSuccess(resBody)
                 } else {
@@ -329,6 +377,26 @@ class InternetHelper {
         })
     }
 
+    /**
+     * getMusicStatus 的挂起版本，供 MusicSyncWorker（协程环境）调用。
+     * 通过 suspendCancellableCoroutine 将回调桥接为 suspend fun，
+     * 返回解析好的 JSONObject，失败时返回 null。
+     */
+    suspend fun getMusicStatusSuspend(
+        hostName: String,
+        roomName: String,
+        userName: String
+    ): JSONObject? = suspendCancellableCoroutine { cont ->
+        getMusicStatus(hostName, roomName, userName, object : RequestCallback {
+            override fun onSuccess(responseBody: String) {
+                val result = try { JSONObject(responseBody) } catch (e: Exception) { null }
+                cont.resume(result)
+            }
+            override fun onFailure() {
+                cont.resume(null)
+            }
+        })
+    }
 
     fun searchExampleSongs(hostName: String, keyword: String, page: Int, pageSize: Int, callback: RequestCallback) {
         val url = formatUrl(hostName)
@@ -383,9 +451,47 @@ class InternetHelper {
                         val jsonObj = JSONObject(bodyString)
                         val p = jsonObj.optInt("present_number")
                         val m = jsonObj.optInt("max_number")
+                        // 注意：此回调切回了主线程，与其他方法行为不一致。
+                        // 建议调用方统一自行切线程，此处保留原行为以免影响现有调用。
                         Handler(Looper.getMainLooper()).post {
                             callback.onSuccess(p, m)
                         }
+                    } catch (e: Exception) {
+                        callback.onFailure()
+                    }
+                } else {
+                    callback.onFailure()
+                }
+            }
+        })
+    }
+
+    fun checkIsIn(
+        hostName: String,
+        roomName: String,
+        userName: String,
+        callback: RoomRequestCallback
+    ) {
+        val url = formatUrl(hostName)
+        val json = JSONObject().apply {
+            put("room_name", roomName)
+            put("user_name", userName)
+        }
+        val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val request = Request.Builder()
+            .url("$url/api/check_is_in")
+            .post(body)
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = callback.onFailure()
+            override fun onResponse(call: Call, response: Response) {
+                val bodyStr = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    try {
+                        val status = JSONObject(bodyStr).optString("status", "")
+                        if (status == "in_room") callback.onSuccess()  // 还在
+                        else callback.onFailure()                       // need_exit 或其他
                     } catch (e: Exception) {
                         callback.onFailure()
                     }
@@ -407,7 +513,7 @@ class InternetHelper {
         updateTime: Long = System.currentTimeMillis(),
         callback: RoomRequestCallback
     ) {
-        val client = okHttpClient // 复用，不要每次 new OkHttpClient()
+        val client = okHttpClient
         val url = formatUrl(hostName)
 
         val json = JSONObject().apply {
@@ -434,10 +540,16 @@ class InternetHelper {
         })
     }
 
-    // 获取音频流地址
+    /**
+     * 修复7：原代码 fileName 和 roomName 没有 Uri.encode()，
+     * 文件名含空格或中文时 URL 非法，请求会失败。
+     * 对比 getRoomCoverUrl 已正确编码，此处补齐。
+     */
     fun getStreamUrl(hostName: String, roomName: String, fileName: String): String {
         val url = if (hostName.startsWith("http")) hostName else "http://$hostName"
-        return "$url/api/stream/$roomName/$fileName"
+        val encodedRoom = Uri.encode(roomName)
+        val encodedFile = Uri.encode(fileName)
+        return "$url/api/stream/$encodedRoom/$encodedFile"
     }
 
     fun getExampleMusicList(hostName: String, callback: RequestCallback) {
@@ -456,10 +568,10 @@ class InternetHelper {
         })
     }
 
-    // 获取模板音乐流地址
     fun getExampleStreamUrl(hostName: String, fileName: String): String {
         val baseUrl = formatUrl(hostName)
-        return "$baseUrl/api/stream_example/$fileName"
+        val encodedFile = Uri.encode(fileName)
+        return "$baseUrl/api/stream_example/$encodedFile"
     }
 
     fun setExampleMode(
@@ -487,6 +599,4 @@ class InternetHelper {
             }
         })
     }
-
-
 }

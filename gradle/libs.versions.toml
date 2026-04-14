@@ -20,6 +20,8 @@ okhttp = "4.12.0"
 gson = "2.10.1"
 foundationLayout = "1.10.2"
 animationCore = "1.10.2"
+workRuntimeKtx = "2.11.1"
+androidxMedia = "1.7.0"
 
 
 [libraries]
@@ -56,6 +58,8 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
 androidx-compose-animation-core = { group = "androidx.compose.animation", name = "animation-core", version.ref = "animationCore" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntimeKtx" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

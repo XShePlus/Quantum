@@ -50,8 +50,8 @@ android {
         applicationId = "com.xshe.quantum"
         minSdk = 28
         targetSdk = 36
-        versionCode = 227
-        versionName = "V2.2.7"
+        versionCode = 253
+        versionName = "V2.5.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.androidx.compose.animation.core)
     implementation(libs.coil.compose)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // 测试
     testImplementation(libs.junit)
@@ -117,6 +118,8 @@ dependencies {
     // Debug 专属
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    implementation("androidx.media:media:1.7.0")
 
     //MIUIX
     implementation(libs.miuix)
