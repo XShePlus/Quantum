@@ -24,4 +24,7 @@ class Values {
         roomName = "null"
         messageList.clear()
     }
+    companion object{
+        var isInExample by mutableStateOf(false)
+    }
 }
